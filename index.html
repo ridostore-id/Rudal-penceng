@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rekap dan Data Member Rudal Penceng</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f1520">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Rudal Penceng">
+<style>
+*{box-sizing:border-box}body{margin:0;font:14px Arial,sans-serif;background:#0f1520;color:#e6edf6}
+h2{margin:0 0 8px;font-size:16px}.w{max-width:900px;margin:auto;padding:12px}
+.c{background:#182233;border:1px solid #2a3a55;border-radius:10px;padding:12px;margin-bottom:12px}
+input,select,button{font:inherit;padding:9px;border-radius:7px;border:1px solid #33486a;background:#0f1520;color:#e6edf6;width:100%;margin:3px 0}
+button{background:#2f6fed;border:0;font-weight:bold;cursor:pointer}button.g{background:#33486a}button.r{background:#c0392b;width:auto;padding:5px 9px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}.tabs{display:flex;gap:6px;margin-bottom:12px}.tabs button{padding:10px 4px}
+.sc{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:560px}th,td{border:1px solid #33486a;padding:6px;text-align:center}
+th{background:#1f3864;position:sticky;top:0}td.l{text-align:left}.top{background:#1d4d32}.mid{background:#4d4420}
+.hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.hd button{width:auto;padding:7px 12px}
+.e{color:#ff7b72;min-height:18px}small{color:#8da2c0}
+</style></head><body>
+<div class="w" id="login" hidden><div class="c" style="text-align:center"><img src="logo.png" alt="Rudal Penceng" style="width:220px;max-width:75%;display:block;margin:0 auto 6px"><h2>Rekap dan Data Member Rudal Penceng</h2>
+<form id="lf"><input id="em" type="email" placeholder="Email" required autocomplete="username">
+<input id="pw" type="password" placeholder="Password" required autocomplete="current-password">
+<button>Masuk</button></form><div class="e" id="le"></div></div></div>
+<div class="w" id="app" hidden>
+<div class="hd"><div style="display:flex;align-items:center;gap:10px;min-width:0"><img src="logo.png" alt="Rudal Penceng" style="width:52px;height:52px;flex:none"><h2 style="margin:0">Rekap dan Data Member Rudal Penceng</h2></div><button class="g" onclick="sb.auth.signOut()">Keluar</button></div>
+<div class="tabs" id="tabs"></div><div id="view"></div></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+const SUPABASE_URL='https://taffistnkxpbutvwxeyo.supabase.co';
+const SUPABASE_KEY='sb_publishable_v0AlfdNusuQUBDIsNWR-Aw_VkcuDOIR'; // Project Settings > API Keys > anon / publishable key
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let members=[],attacks=[],tab='rekap',loaded=false,last={d:new Date().toISOString().slice(0,10),o:'',m:''};
+let cfg={min:2,pct:60};try{cfg=JSON.parse(localStorage.getItem('cocCfg'))||cfg}catch(e){}
+const TABS=[['rekap','Rekap'],['atk','Serangan'],['mem','Member'],['csv','CSV']];
+const normTag=t=>{t=String(t||'').toUpperCase().replace(/\s/g,'').replace(/O/g,'0');return t?(t[0]=='#'?t:'#'+t):''};
+
+async function all(t){let o=[],i=0;for(;;){const{data,error}=await sb.from(t).select('*').order('created_at').order('id').range(i,i+999);if(error)throw error;o=o.concat(data);if(data.length<1000)return o;i+=1000}}
+async function load(){try{[members,attacks]=await Promise.all([all('coc_members'),all('coc_attacks')]);render()}catch(e){alert('Gagal memuat: '+e.message)}}
+
+if(SUPABASE_KEY.startsWith('ISI_'))setTimeout(()=>$('le').textContent='Anon key Supabase belum diisi di index.html',300);
+$('lf').onsubmit=async e=>{e.preventDefault();$('le').textContent='';const{error}=await sb.auth.signInWithPassword({email:$('em').value.trim(),password:$('pw').value});if(error)$('le').textContent='Email atau password salah'};
+sb.auth.onAuthStateChange((ev,s)=>{$('login').hidden=!!s;$('app').hidden=!s;if(s&&!loaded){loaded=true;load()}if(!s)loaded=false});
+sb.auth.getSession().then(({data})=>{if(!data.session)$('login').hidden=false});
+
+function calc(){
+ const s=members.map(m=>{const a=attacks.filter(x=>x.member_id===m.id),n=a.length,c=k=>a.filter(x=>x.stars===k).length;
+  return{m,n,r:c(3),c2:c(2),c1:c(1),c0:c(0),avg:n?a.reduce((t,x)=>t+x.stars,0)/n:0,avgp:n?a.reduce((t,x)=>t+(x.percent||0),0)/n:0,pr:n?c(3)/n:0}});
+ const el=s.filter(x=>x.m.status!=='Keluar'&&x.n>=cfg.min).sort((a,b)=>b.avg-a.avg||b.avgp-a.avgp);
+ el.forEach((x,i)=>x.rank=i+1);
+ s.forEach(x=>x.rec=x.m.status==='Keluar'?'Sudah keluar':x.n<cfg.min?'Data kurang':x.pr*100>=cfg.pct?'Prioritas CWL':'Cadangan');
+ return[...el,...s.filter(x=>!x.rank).sort((a,b)=>b.n-a.n)];
+}
+function render(){
+ $('tabs').innerHTML=TABS.map(([k,l])=>`<button class="${tab==k?'':'g'}" onclick="tab='${k}';render()">${l}</button>`).join('');
+ $('view').innerHTML={rekap:vRekap,atk:vAtk,mem:vMem,csv:vCsv}[tab]();
+}
+function vRekap(){
+ const rows=calc().map(x=>`<tr class="${x.rank<=15?'top':x.rank<=30?'mid':''}"><td>${x.rank||'-'}</td><td class="l">${esc(x.m.name)}</td><td>${esc(x.m.tag)}</td><td>${x.n}</td><td>${x.r}</td><td>${x.n?Math.round(x.pr*100)+'%':'-'}</td><td>${x.n?x.avg.toFixed(2):'-'}</td><td>${x.n?x.avgp.toFixed(1):'-'}</td><td>${x.rec}</td></tr>`).join('');
+ return`<div class="c"><h2>Pengaturan</h2><div class="row"><div><small>Minimal serangan dinilai</small><input type="number" min="1" value="${cfg.min}" onchange="setCfg('min',this.value)"></div>
+ <div><small>Minimal % rata (Prioritas)</small><input type="number" min="0" max="100" value="${cfg.pct}" onchange="setCfg('pct',this.value)"></div></div>
+ <small>Rata = 3 bintang. Hijau = 15 teratas, kuning = 16–30.</small></div>
+ <div class="c sc"><table><tr><th>#</th><th>Nama</th><th>Tagar</th><th>Srg</th><th>Rata</th><th>% Rata</th><th>Avg ★</th><th>Avg %</th><th>Rekomendasi</th></tr>${rows||'<tr><td colspan="9">Belum ada data</td></tr>'}</table></div>`;
+}
+function setCfg(k,v){cfg[k]=+v;try{localStorage.setItem('cocCfg',JSON.stringify(cfg))}catch(e){}render()}
+function vAtk(){
+ const opts=members.filter(m=>m.status!=='Keluar').map(m=>`<option value="${m.id}" ${m.id==last.m?'selected':''}>${esc(m.name)} ${esc(m.tag)}</option>`).join('');
+ const by=Object.fromEntries(members.map(m=>[m.id,m]));
+ const list=attacks.slice(-50).reverse().map(a=>`<tr><td>${a.war_date||''}</td><td class="l">${esc(by[a.member_id]?.name)}</td><td>${a.attack_no||''}</td><td>${a.stars}★</td><td>${a.percent??''}</td><td><button class="r" onclick="delRow('coc_attacks','${a.id}')">✕</button></td></tr>`).join('');
+ return`<div class="c"><h2>Tambah serangan</h2><div class="row"><input type="date" id="ad" value="${last.d}"><input id="ao" placeholder="Lawan clan" value="${esc(last.o)}"></div>
+ <select id="am"><option value="">Pilih member</option>${opts}</select>
+ <div class="row"><select id="an"><option>1</option><option>2</option></select><select id="as"><option>3</option><option>2</option><option>1</option><option>0</option></select></div>
+ <input id="ap" type="number" min="0" max="100" placeholder="Persentase (0-100)"><button onclick="addAtk()">Simpan</button></div>
+ <div class="c sc"><h2>50 serangan terakhir</h2><table><tr><th>Tanggal</th><th>Nama</th><th>Ke-</th><th>Bintang</th><th>%</th><th></th></tr>${list||'<tr><td colspan="6">Kosong</td></tr>'}</table></div>`;
+}
+async function addAtk(){
+ const v=id=>$(id).value;if(!v('am'))return alert('Pilih member dulu');
+ last={d:v('ad'),o:v('ao'),m:v('am')};
+ const row={war_date:v('ad')||null,opponent:v('ao')||null,member_id:v('am'),attack_no:+v('an'),stars:+v('as'),percent:v('ap')===''?null:Math.min(100,Math.max(0,+v('ap')))};
+ const{data,error}=await sb.from('coc_attacks').insert(row).select();if(error)return alert(error.message);
+ attacks.push(...data);render();
+}
+function vMem(){
+ const list=members.map(m=>`<tr><td class="l">${esc(m.name)}</td><td>${esc(m.tag)}</td><td><select style="width:auto;margin:0;padding:5px" onchange="setRole('${m.id}',this.value)">${['Member','Elder','Co-Leader','Leader'].map(r=>`<option ${r==m.role?'selected':''}>${r}</option>`).join('')}</select></td><td><button class="g" style="padding:5px" onclick="togStat('${m.id}')">${m.status}</button></td><td><button class="r" onclick="delRow('coc_members','${m.id}')">✕</button></td></tr>`).join('');
+ return`<div class="c"><h2>Tambah member</h2><div class="row"><input id="mn" placeholder="Nama"><input id="mt" placeholder="Tagar #P2YLQ8R"></div>
+ <div class="row"><input id="mh" type="number" placeholder="Town Hall"><select id="mr"><option>Member</option><option>Elder</option><option>Co-Leader</option><option>Leader</option></select></div>
+ <button onclick="addMem()">Simpan</button></div>
+ <div class="c sc"><h2>${members.length} member</h2><table><tr><th>Nama</th><th>Tagar</th><th>Role</th><th>Status</th><th></th></tr>${list||'<tr><td colspan="5">Kosong</td></tr>'}</table></div>`;
+}
+async function addMem(){
+ const name=$('mn').value.trim(),tag=normTag($('mt').value);if(!name||!tag)return alert('Nama dan tagar wajib diisi');
+ const{data,error}=await sb.from('coc_members').insert({name,tag,th:+$('mh').value||null,role:$('mr').value}).select();
+ if(error)return alert(error.code=='23505'?'Tagar sudah ada':error.message);members.push(...data);render();
+}
+async function setRole(id,r){const m=members.find(x=>x.id==id),old=m.role;const{error}=await sb.from('coc_members').update({role:r}).eq('id',id);if(error){alert(error.message);m.role=old;return render()}m.role=r}
+async function togStat(id){const m=members.find(x=>x.id==id),s=m.status=='Aktif'?'Keluar':'Aktif';const{error}=await sb.from('coc_members').update({status:s}).eq('id',id);if(error)return alert(error.message);m.status=s;render()}
+async function delRow(t,id){
+ if(!confirm(t=='coc_members'?'Hapus member beserta seluruh riwayat serangannya?':'Hapus serangan ini?'))return;
+ const{error}=await sb.from(t).delete().eq('id',id);if(error)return alert(error.message);
+ if(t=='coc_members'){members=members.filter(x=>x.id!=id);attacks=attacks.filter(x=>x.member_id!=id)}else attacks=attacks.filter(x=>x.id!=id);render();
+}
+function vCsv(){return`<div class="c"><h2>Ekspor CSV</h2><button onclick="expMem()">Unduh Member</button><button onclick="expAtk()">Unduh Serangan</button><button onclick="expRek()">Unduh Rekap CWL</button></div>
+ <div class="c"><h2>Impor Member</h2><small>Kolom: Nama, Tagar, TownHall, Role, Status. Tagar yang sudah ada diperbarui.</small><input type="file" accept=".csv" onchange="impMem(this)"></div>
+ <div class="c"><h2>Impor Serangan</h2><small>Kolom: Tanggal, Lawan, Nama, Tagar, Serangan, Bintang, Persen. Member baru dibuat otomatis jika tagar diisi.</small><input type="file" accept=".csv" onchange="impAtk(this)"></div>`}
+function dl(name,rows){const csv='\uFEFF'+rows.map(r=>r.map(v=>{v=String(v??'');return/[",;\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}).join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=name;a.click()}
+const expMem=()=>dl('member.csv',[['Nama','Tagar','TownHall','Role','Status'],...members.map(m=>[m.name,m.tag,m.th,m.role,m.status])]);
+const expAtk=()=>{const by=Object.fromEntries(members.map(m=>[m.id,m]));dl('serangan.csv',[['Tanggal','Lawan','Nama','Tagar','Serangan','Bintang','Persen'],...attacks.map(a=>[a.war_date,a.opponent,by[a.member_id]?.name,by[a.member_id]?.tag,a.attack_no,a.stars,a.percent])])};
+const expRek=()=>dl('rekap_cwl.csv',[['Peringkat','Nama','Tagar','Serangan','Rata','Persen Rata','Avg Bintang','Avg Persen','Rekomendasi'],...calc().map(x=>[x.rank||'',x.m.name,x.m.tag,x.n,x.r,x.n?Math.round(x.pr*100):'',x.n?x.avg.toFixed(2):'',x.n?x.avgp.toFixed(1):'',x.rec])]);
+function parseCSV(t){t=t.replace(/^\uFEFF/,'');const l=t.split('\n')[0],d=(l.match(/;/g)||[]).length>(l.match(/,/g)||[]).length?';':',';const R=[];let r=[],f='',q=false;
+ for(let i=0;i<t.length;i++){const c=t[i];if(q){if(c=='"'){if(t[i+1]=='"'){f+='"';i++}else q=false}else f+=c}else if(c=='"')q=true;else if(c==d){r.push(f);f=''}else if(c=='\n'||c=='\r'){if(c=='\r'&&t[i+1]=='\n')i++;r.push(f);f='';if(r.some(x=>x.trim()))R.push(r);r=[]}else f+=c}
+ r.push(f);if(r.some(x=>x.trim()))R.push(r);return R}
+async function readCsv(inp){const f=inp.files[0];if(!f)return null;const R=parseCSV(await f.text());inp.value='';if(R.length<2){alert('File kosong');return null}
+ const H=R[0].map(h=>h.toLowerCase().replace(/[^a-z]/g,''));return{rows:R.slice(1),col:k=>H.findIndex(h=>h.startsWith(k))}}
+async function impMem(inp){const x=await readCsv(inp);if(!x)return;const{rows,col}=x,ci=n=>col(n),g=(r,n)=>(r[ci(n)]||'').trim();
+ const roles=['Member','Elder','Co-Leader','Leader'];
+ const out=rows.map(r=>({name:g(r,'nama'),tag:normTag(g(r,'tagar')),th:+g(r,'town')||+g(r,'th')||null,role:roles.find(z=>z.toLowerCase()==g(r,'role').toLowerCase())||'Member',status:g(r,'status').toLowerCase()=='keluar'?'Keluar':'Aktif'})).filter(r=>r.name&&r.tag);
+ const{error}=await sb.from('coc_members').upsert(out,{onConflict:'tag'});if(error)return alert(error.message);await load();alert(out.length+' member diimpor')}
+async function impAtk(inp){const x=await readCsv(inp);if(!x)return;const{rows,col}=x,g=(r,n)=>(r[col(n)]||'').trim();
+ const fixD=s=>{let m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);return m?`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`:(/^\d{4}-\d{2}-\d{2}$/.test(s)?s:null)};
+ const known=new Set(members.map(m=>m.tag)),nm=new Map();
+ rows.forEach(r=>{const t=normTag(g(r,'tagar'));if(t&&!known.has(t)&&g(r,'nama'))nm.set(t,{name:g(r,'nama'),tag:t})});
+ if(nm.size){const{error}=await sb.from('coc_members').upsert([...nm.values()],{onConflict:'tag'});if(error)return alert(error.message);members=await all('coc_members')}
+ const byTag=Object.fromEntries(members.map(m=>[m.tag,m.id])),byName=Object.fromEntries(members.map(m=>[m.name.toLowerCase(),m.id]));
+ let skip=0;const out=[];
+ rows.forEach(r=>{const id=byTag[normTag(g(r,'tagar'))]||byName[g(r,'nama').toLowerCase()],s=parseInt(g(r,'bintang'));
+  if(!id||!(s>=0&&s<=3)){skip++;return}const p=parseInt(g(r,'persen'));
+  out.push({member_id:id,war_date:fixD(g(r,'tanggal')),opponent:g(r,'lawan')||null,attack_no:[1,2].includes(+g(r,'serangan'))?+g(r,'serangan'):null,stars:s,percent:p>=0&&p<=100?p:null})});
+ for(let i=0;i<out.length;i+=500){const{error}=await sb.from('coc_attacks').insert(out.slice(i,i+500));if(error)return alert(error.message)}
+ await load();alert(out.length+' serangan diimpor, '+skip+' dilewati')}
+if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+</script></body></html>
