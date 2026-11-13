@@ -1,0 +1,40 @@
+name: Sinkron Member Rudal Penceng
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tarik member klan lalu simpan ke Supabase
+        env:
+          COC_API_KEY: ${{ secrets.COC_API_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_URL: https://taffistnkxpbutvwxeyo.supabase.co
+          CLAN_TAG: '#2UQ9UG0Y9'
+        run: |
+          node - <<'EOF'
+          const KEY = process.env.COC_API_KEY, SK = process.env.SUPABASE_SECRET_KEY;
+          const BASE = process.env.SUPABASE_URL + '/rest/v1/coc_members';
+          const ROLE = { leader: 'Leader', coLeader: 'Co-Leader', admin: 'Elder', member: 'Member' };
+          const sb = { apikey: SK, 'Content-Type': 'application/json' };
+          (async () => {
+            const r = await fetch('https://cocproxy.royaleapi.dev/v1/clans/' + encodeURIComponent(process.env.CLAN_TAG) + '/members?limit=50', { headers: { Authorization: 'Bearer ' + KEY } });
+            if (!r.ok) { console.error('API Clash of Clans gagal:', r.status, await r.text()); process.exit(1); }
+            const items = (await r.json()).items || [];
+            if (!items.length) { console.error('Daftar member kosong, proses dihentikan.'); process.exit(1); }
+            const rows = items.map(m => ({ name: m.name, tag: m.tag, th: m.townHallLevel || null, role: ROLE[m.role] || 'Member', status: 'Aktif' }));
+            const up = await fetch(BASE + '?on_conflict=tag', { method: 'POST', headers: { ...sb, Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(rows) });
+            if (!up.ok) { console.error('Simpan ke Supabase gagal:', up.status, await up.text()); process.exit(1); }
+            const cur = await fetch(BASE + '?select=tag,status&limit=1000', { headers: sb });
+            if (!cur.ok) { console.error('Baca Supabase gagal:', cur.status, await cur.text()); process.exit(1); }
+            const inClan = new Set(items.map(m => m.tag));
+            const left = (await cur.json()).filter(x => x.status === 'Aktif' && !inClan.has(x.tag));
+            for (const x of left) {
+              const p = await fetch(BASE + '?tag=eq.' + encodeURIComponent(x.tag), { method: 'PATCH', headers: { ...sb, Prefer: 'return=minimal' }, body: JSON.stringify({ status: 'Keluar' }) });
+              if (!p.ok) console.error('Gagal menandai keluar:', x.tag, p.status);
+            }
+            console.log('Selesai. Member klan: ' + rows.length + ', ditandai Keluar: ' + left.length);
+          })().catch(e => { console.error(e); process.exit(1); });
+          EOF
