@@ -1,0 +1,59 @@
+name: Sinkron Serangan War Rudal Penceng
+on:
+  schedule:
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tarik serangan war lalu simpan ke Supabase
+        env:
+          COC_API_KEY: ${{ secrets.COC_API_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_URL: https://taffistnkxpbutvwxeyo.supabase.co
+          CLAN_TAG: '#2UQ9UG0Y9'
+        run: |
+          node - <<'EOF'
+          const KEY = process.env.COC_API_KEY, SK = process.env.SUPABASE_SECRET_KEY;
+          const REST = process.env.SUPABASE_URL + '/rest/v1/';
+          const H = { apikey: SK, 'Content-Type': 'application/json' };
+          const toDate = s => new Date(s.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})\.(\d{3})Z$/, '$1-$2-$3T$4:$5:$6.$7Z'));
+          const day = d => d.toISOString().slice(0, 10);
+          const fail = (msg, extra) => { console.error(msg, extra || ''); process.exit(1); };
+          const getJson = async (url) => { const r = await fetch(url, { headers: H }); if (!r.ok) fail('Baca Supabase gagal:', r.status + ' ' + await r.text()); return r.json(); };
+          (async () => {
+            const r = await fetch('https://cocproxy.royaleapi.dev/v1/clans/' + encodeURIComponent(process.env.CLAN_TAG) + '/currentwar', { headers: { Authorization: 'Bearer ' + KEY } });
+            if (r.status === 403) fail('Ditolak (403). Cek: log war klan harus Publik di game, dan IP kunci API harus 45.79.218.79.', await r.text());
+            if (!r.ok) fail('API Clash of Clans gagal:', r.status + ' ' + await r.text());
+            const w = await r.json();
+            if (!['inWar', 'warEnded'].includes(w.state)) { console.log('Belum ada serangan untuk dicatat. Status war: ' + w.state); return; }
+            const atk = [];
+            for (const m of (w.clan.members || [])) {
+              (m.attacks || []).slice().sort((a, b) => a.order - b.order).forEach((a, i) => atk.push({ tag: m.tag, name: m.name, th: m.townhallLevel || null, no: i + 1, stars: a.stars, pct: a.destructionPercentage }));
+            }
+            if (!atk.length) { console.log('War berjalan, belum ada serangan.'); return; }
+            const warDate = day(new Date(toDate(w.endTime).getTime() + 7 * 3600e3));
+            const opp = (w.opponent && w.opponent.name) || null;
+            let mem = await getJson(REST + 'coc_members?select=id,tag&limit=1000');
+            let byTag = Object.fromEntries(mem.map(x => [x.tag, x.id]));
+            const miss = [...new Map(atk.filter(a => !byTag[a.tag]).map(a => [a.tag, { name: a.name, tag: a.tag, th: a.th, role: 'Member', status: 'Aktif' }])).values()];
+            if (miss.length) {
+              const p = await fetch(REST + 'coc_members?on_conflict=tag', { method: 'POST', headers: { ...H, Prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(miss) });
+              if (!p.ok) fail('Tambah member baru gagal:', p.status + ' ' + await p.text());
+              mem = await getJson(REST + 'coc_members?select=id,tag&limit=1000');
+              byTag = Object.fromEntries(mem.map(x => [x.tag, x.id]));
+            }
+            const d0 = new Date(warDate + 'T00:00:00Z').getTime();
+            const lo = day(new Date(d0 - 86400e3)), hi = day(new Date(d0 + 86400e3));
+            const old = await getJson(REST + 'coc_attacks?select=member_id,attack_no,stars,percent&war_date=gte.' + lo + '&war_date=lte.' + hi + '&limit=1000');
+            const have = new Set(old.map(x => [x.member_id, x.attack_no, x.stars, x.percent].join('|')));
+            const rows = atk.map(a => ({ war_date: warDate, opponent: opp, member_id: byTag[a.tag], attack_no: a.no, stars: a.stars, percent: a.pct }))
+              .filter(x => !have.has([x.member_id, x.attack_no, x.stars, x.percent].join('|')));
+            if (rows.length) {
+              const p = await fetch(REST + 'coc_attacks', { method: 'POST', headers: { ...H, Prefer: 'return=minimal' }, body: JSON.stringify(rows) });
+              if (!p.ok) fail('Simpan serangan gagal:', p.status + ' ' + await p.text());
+            }
+            console.log('Selesai. War vs ' + opp + ' (' + warDate + '), status ' + w.state + ': serangan di API ' + atk.length + ', baru disimpan ' + rows.length + ', member baru ' + miss.length);
+          })().catch(e => fail(e));
+          EOF
