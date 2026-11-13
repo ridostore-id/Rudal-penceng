@@ -1,0 +1,20 @@
+name: Jaga Workflow Aktif
+on:
+  schedule:
+    - cron: '0 3 1 * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Catat aktivitas bulanan
+        run: |
+          date -u +%F > .github/last-keepalive.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/last-keepalive.txt
+          git commit -m "Jaga workflow tetap aktif" || exit 0
+          git push origin HEAD
