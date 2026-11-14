@@ -1,0 +1,39 @@
+name: Bersihkan Serangan Lama Rudal Penceng
+on:
+  schedule:
+    - cron: '30 17 * * *'
+  workflow_dispatch:
+jobs:
+  bersih:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hapus serangan yang lebih lama dari batas simpan
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_URL: https://taffistnkxpbutvwxeyo.supabase.co
+          SIMPAN_HARI: '30'
+        run: |
+          node - <<'EOF'
+          if (!process.env.SUPABASE_SECRET_KEY) { console.error('Secret SUPABASE_SECRET_KEY belum diisi.'); process.exit(1); }
+          const HARI = Number(process.env.SIMPAN_HARI || '30');
+          if (!(HARI >= 14)) { console.error('SIMPAN_HARI minimal 14 hari, proses dihentikan demi keamanan.'); process.exit(1); }
+          const BASE = process.env.SUPABASE_URL + '/rest/v1/coc_attacks';
+          const H = { apikey: process.env.SUPABASE_SECRET_KEY, 'Content-Type': 'application/json' };
+          const fail = (msg, extra) => { console.error(msg, extra || ''); process.exit(1); };
+          const batasMs = Date.now() - HARI * 86400e3;
+          const tgl = new Date(batasMs + 7 * 3600e3).toISOString().slice(0, 10);
+          const iso = new Date(batasMs).toISOString();
+          (async () => {
+            const cek = await fetch(BASE + '?select=id&war_date=gte.' + tgl + '&limit=1', { headers: H });
+            if (!cek.ok) fail('Baca Supabase gagal:', cek.status + ' ' + await cek.text());
+            if (!(await cek.json()).length) { console.log('Tidak ada serangan dalam ' + HARI + ' hari terakhir. Penghapusan dilewati agar data tidak kosong.'); return; }
+            const hapus = async (query) => {
+              const r = await fetch(BASE + '?' + query + '&select=id', { method: 'DELETE', headers: { ...H, Prefer: 'return=representation' } });
+              if (!r.ok) fail('Hapus gagal:', r.status + ' ' + await r.text());
+              return (await r.json()).length;
+            };
+            const a = await hapus('war_date=lt.' + tgl);
+            const b = await hapus('war_date=is.null&created_at=lt.' + iso);
+            console.log('Selesai. Serangan lebih lama dari ' + HARI + ' hari (sebelum ' + tgl + ') dihapus: ' + (a + b));
+          })().catch(e => fail(e));
+          EOF
