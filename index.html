@@ -18,7 +18,7 @@ button{background:#2f6fed;border:0;font-weight:bold;cursor:pointer}button.g{back
 .sc{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:560px}th,td{border:1px solid #33486a;padding:6px;text-align:center}
 th{background:#1f3864;position:sticky;top:0}td.l{text-align:left}.top{background:#1d4d32}.mid{background:#4d4420}
 .hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.hd button{width:auto;padding:7px 12px}
-.e{color:#ff7b72;min-height:18px}input:disabled{opacity:.55}small{color:#8da2c0}
+.e{color:#ff7b72;min-height:18px}input:disabled{opacity:.55}details.c summary{cursor:pointer;list-style:none}details.c summary::-webkit-details-marker{display:none}details.c summary::before{content:'▸ '}details.c[open]>summary::before{content:'▾ '}details.c[open]>summary{margin-bottom:8px}small{color:#8da2c0}
 </style></head><body>
 <div class="w" id="login" hidden><div class="c" style="text-align:center"><img src="logo.png" alt="Rudal Penceng" style="width:220px;max-width:75%;display:block;margin:0 auto 6px"><h2>Rekap dan Data Member Rudal Penceng</h2>
 <form id="lf"><input id="em" type="email" placeholder="Email" required autocomplete="username">
@@ -42,6 +42,14 @@ const normTag=t=>{t=String(t||'').toUpperCase().replace(/\s/g,'').replace(/O/g,'
 const CLAN_TAG='#2UQ9UG0Y9';
 const hit=m=>{const k=q.trim().toLowerCase().replace(/^#/,'');if(!k)return true;return String(m.name||'').toLowerCase().includes(k)||String(m.tag||'').toLowerCase().replace('#','').includes(k.replace(/o/g,'0'))};
 function copyTag(){const b=$('cb'),done=()=>{b.textContent='Tersalin ✓';setTimeout(()=>{b.textContent='Salin'},1500)};function fb(){const t=document.createElement('textarea');t.value=CLAN_TAG;document.body.appendChild(t);t.select();try{document.execCommand('copy');done()}catch(e){}t.remove()}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(CLAN_TAG).then(done,fb)}else fb()}
+const RETENSI=30;
+const wib=ms=>new Date(ms+7*36e5).toISOString().slice(0,10);
+const cutoff=()=>wib(Date.now()-RETENSI*864e5),today=()=>wib(Date.now());
+const adate=a=>a.war_date||String(a.created_at||'').slice(0,10);
+const recent=a=>adate(a)>=cutoff();
+const BLN=['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+const fmtD=d=>{const m=String(d).match(/^(\d{4})-(\d\d)-(\d\d)/);return m?(+m[3])+' '+BLN[+m[2]-1]+' '+m[1]:'Tanpa tanggal'};
+function periodeInfo(){const ra=attacks.filter(recent),nw=new Set(ra.map(adate)).size;return`<div class="c"><small>📅 Periode: ${fmtD(cutoff())} – ${fmtD(today())} (${RETENSI} hari terakhir) · ${nw} war · ${ra.length} serangan. Data lebih lama dihapus otomatis.</small></div>`}
 
 async function all(t){let o=[],i=0;for(;;){const{data,error}=await sb.from(t).select('*').order('created_at').order('id').range(i,i+999);if(error)throw error;o=o.concat(data);if(data.length<1000)return o;i+=1000}}
 async function load(){try{[members,attacks]=await Promise.all([all('coc_members'),all('coc_attacks')]);try{const{data}=await sb.from('coc_settings').select('*').eq('id',1).maybeSingle();if(data)cfg={min:data.min_attacks,pct:data.min_pct}}catch(e){}render()}catch(e){alert('Gagal memuat: '+e.message)}}
@@ -54,7 +62,8 @@ function backPublic(){$('login').hidden=true;$('app').hidden=false}
 sb.auth.onAuthStateChange((ev,s)=>{const a=!!s;if(loaded&&a===admin)return;admin=a;loaded=true;backPublic();load()});
 
 function calc(){
- const s=members.map(m=>{const a=attacks.filter(x=>x.member_id===m.id),n=a.length,c=k=>a.filter(x=>x.stars===k).length;
+ const ra=attacks.filter(recent);
+ const s=members.map(m=>{const a=ra.filter(x=>x.member_id===m.id),n=a.length,c=k=>a.filter(x=>x.stars===k).length;
   return{m,n,r:c(3),c2:c(2),c1:c(1),c0:c(0),avg:n?a.reduce((t,x)=>t+x.stars,0)/n:0,avgp:n?a.reduce((t,x)=>t+(x.percent||0),0)/n:0,pr:n?c(3)/n:0}});
  const el=s.filter(x=>x.m.status!=='Keluar'&&x.n>=cfg.min).sort((a,b)=>b.avg-a.avg||b.avgp-a.avgp);
  el.forEach((x,i)=>x.rank=i+1);
@@ -69,7 +78,7 @@ function render(){
 }
 function vRekap(){
  const rows=calc().filter(x=>hit(x.m)).map(x=>`<tr class="${x.rank<=15?'top':x.rank<=30?'mid':''}"><td>${x.rank||'-'}</td><td class="l">${esc(x.m.name)}</td><td>${esc(x.m.tag)}</td><td>${x.n}</td><td>${x.r}</td><td>${x.n?Math.round(x.pr*100)+'%':'-'}</td><td>${x.n?x.avg.toFixed(2):'-'}</td><td>${x.n?x.avgp.toFixed(1):'-'}</td><td>${x.rec}</td></tr>`).join('');
- return`<div class="c"><h2>Pengaturan</h2><div class="row"><div><small>Minimal serangan dinilai</small><input type="number" min="1" value="${cfg.min}" ${admin?'':'disabled'} onchange="setCfg('min',this.value)"></div>
+ return`${periodeInfo()}<div class="c"><h2>Pengaturan</h2><div class="row"><div><small>Minimal serangan dinilai</small><input type="number" min="1" value="${cfg.min}" ${admin?'':'disabled'} onchange="setCfg('min',this.value)"></div>
  <div><small>Minimal % rata (Prioritas)</small><input type="number" min="0" max="100" value="${cfg.pct}" ${admin?'':'disabled'} onchange="setCfg('pct',this.value)"></div></div>
  <small>Rata = 3 bintang. Hijau = 15 teratas, kuning = 16–30.${admin?'':' Angka pengaturan ini diatur oleh admin.'}</small></div>
  <div class="c sc"><table><tr><th>#</th><th>Nama</th><th>Tagar</th><th>Srg</th><th>Rata</th><th>% Rata</th><th>Avg ★</th><th>Avg %</th><th>Rekomendasi</th></tr>${rows||'<tr><td colspan="9">Belum ada data</td></tr>'}</table></div>`;
@@ -78,12 +87,16 @@ async function setCfg(k,v){if(!admin)return render();const old={...cfg};cfg[k]=M
 function vAtk(){
  const opts=members.filter(m=>m.status!=='Keluar').map(m=>`<option value="${m.id}" ${m.id==last.m?'selected':''}>${esc(m.name)} ${esc(m.tag)}</option>`).join('');
  const by=Object.fromEntries(members.map(m=>[m.id,m]));
- const list=attacks.filter(a=>by[a.member_id]&&hit(by[a.member_id])).slice(-50).reverse().map(a=>`<tr><td>${a.war_date||''}</td><td class="l">${esc(by[a.member_id]?.name)}</td><td>${a.attack_no||''}</td><td>${a.stars}★</td><td>${a.percent??''}</td>${admin?`<td><button class="r" onclick="delRow('coc_attacks','${a.id}')">✕</button></td>`:''}</tr>`).join('');
+ const ra=attacks.filter(recent).filter(a=>by[a.member_id]&&hit(by[a.member_id])),wars={};
+ ra.forEach(a=>{(wars[adate(a)]=wars[adate(a)]||[]).push(a)});
+ const cards=Object.keys(wars).sort().reverse().map((k,i)=>{const d=k,L=wars[k].slice().sort((x,y)=>String(by[x.member_id].name).localeCompare(by[y.member_id].name)||(x.attack_no||0)-(y.attack_no||0)),o=(wars[k].find(x=>x.opponent)||{}).opponent||'';
+  const st=L.reduce((t,x)=>t+x.stars,0),r3=L.filter(x=>x.stars===3).length;
+  const rows=L.map(a=>`<tr><td class="l">${esc(by[a.member_id].name)}</td><td>${a.attack_no||''}</td><td>${a.stars}★</td><td>${a.percent??''}</td>${admin?`<td><button class="r" onclick="delRow('coc_attacks','${a.id}')">✕</button></td>`:''}</tr>`).join('');
+  return`<details class="c" ${i<1||q?'open':''}><summary><b>${fmtD(d)}</b>${o?' vs '+esc(o):''}<br><small>${L.length} serangan · ${r3} rata (3★) · rata-rata ${(st/L.length).toFixed(2)}★</small></summary><div class="sc"><table style="min-width:0"><tr><th>Nama</th><th>Ke-</th><th>Bintang</th><th>%</th>${admin?'<th></th>':''}</tr>${rows}</table></div></details>`}).join('');
  return(admin?`<div class="c"><h2>Tambah serangan</h2><div class="row"><input type="date" id="ad" value="${last.d}"><input id="ao" placeholder="Lawan clan" value="${esc(last.o)}"></div>
  <select id="am"><option value="">Pilih member</option>${opts}</select>
  <div class="row"><select id="an"><option>1</option><option>2</option></select><select id="as"><option>3</option><option>2</option><option>1</option><option>0</option></select></div>
- <input id="ap" type="number" min="0" max="100" placeholder="Persentase (0-100)"><button onclick="addAtk()">Simpan</button></div>`:'')+`
- <div class="c sc"><h2>50 serangan terakhir</h2><table><tr><th>Tanggal</th><th>Nama</th><th>Ke-</th><th>Bintang</th><th>%</th>${admin?'<th></th>':''}</tr>${list||'<tr><td colspan="6">Kosong</td></tr>'}</table></div>`;
+ <input id="ap" type="number" min="0" max="100" placeholder="Persentase (0-100)"><button onclick="addAtk()">Simpan</button></div>`:'')+`<div class="c"><small>Menampilkan ${RETENSI} hari terakhir, dikelompokkan per war. Data lebih lama dihapus otomatis.</small></div>`+(cards||'<div class="c">Belum ada serangan</div>');
 }
 async function addAtk(){
  const v=id=>$(id).value;if(!v('am'))return alert('Pilih member dulu');
