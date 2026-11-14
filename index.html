@@ -26,7 +26,8 @@ th{background:#1f3864;position:sticky;top:0}td.l{text-align:left}.top{background
 <button>Masuk</button></form><button class="g" type="button" onclick="backPublic()">Kembali ke tampilan publik</button><div class="e" id="le"></div></div></div>
 <div class="w" id="app" hidden>
 <div class="hd"><div style="display:flex;align-items:center;gap:10px;min-width:0"><img src="logo.png" alt="Rudal Penceng" style="width:52px;height:52px;flex:none"><h2 style="margin:0">Rekap dan Data Member Rudal Penceng</h2></div><button class="g" id="hb">Login Admin</button></div>
-<div class="tabs" id="tabs"></div><div id="view"></div></div>
+<div class="c" id="clan" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><small>Tagar Klan</small><div style="font-size:20px;font-weight:bold;letter-spacing:1px">#2UQ9UG0Y9</div></div><div style="display:flex;gap:8px;align-items:center"><button class="g" id="cb" style="width:auto;padding:8px 12px" onclick="copyTag()">Salin</button><a href="https://link.clashofclans.com/en?action=OpenClanProfile&tag=2UQ9UG0Y9" target="_blank" rel="noopener" style="background:#2f6fed;color:#fff;padding:9px 12px;border-radius:7px;text-decoration:none;font-weight:bold">Buka di game</a></div></div>
+<div class="tabs" id="tabs"></div><input id="sq" placeholder="🔍 Cari nama atau tagar, mis. #R9QYUGJYV" oninput="q=this.value;render()" autocomplete="off"><div id="view"></div></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 const SUPABASE_URL='https://taffistnkxpbutvwxeyo.supabase.co';
@@ -34,10 +35,13 @@ const SUPABASE_KEY='sb_publishable_v0AlfdNusuQUBDIsNWR-Aw_VkcuDOIR'; // Project 
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let members=[],attacks=[],tab='rekap',loaded=false,last={d:new Date().toISOString().slice(0,10),o:'',m:''};
+let members=[],attacks=[],q='',tab='rekap',loaded=false,last={d:new Date().toISOString().slice(0,10),o:'',m:''};
 let cfg={min:2,pct:60};
 const TABS=[['rekap','Rekap'],['atk','Serangan'],['mem','Member'],['csv','CSV']];
 const normTag=t=>{t=String(t||'').toUpperCase().replace(/\s/g,'').replace(/O/g,'0');return t?(t[0]=='#'?t:'#'+t):''};
+const CLAN_TAG='#2UQ9UG0Y9';
+const hit=m=>{const k=q.trim().toLowerCase().replace(/^#/,'');if(!k)return true;return String(m.name||'').toLowerCase().includes(k)||String(m.tag||'').toLowerCase().replace('#','').includes(k.replace(/o/g,'0'))};
+function copyTag(){const b=$('cb'),done=()=>{b.textContent='Tersalin ✓';setTimeout(()=>{b.textContent='Salin'},1500)};function fb(){const t=document.createElement('textarea');t.value=CLAN_TAG;document.body.appendChild(t);t.select();try{document.execCommand('copy');done()}catch(e){}t.remove()}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(CLAN_TAG).then(done,fb)}else fb()}
 
 async function all(t){let o=[],i=0;for(;;){const{data,error}=await sb.from(t).select('*').order('created_at').order('id').range(i,i+999);if(error)throw error;o=o.concat(data);if(data.length<1000)return o;i+=1000}}
 async function load(){try{[members,attacks]=await Promise.all([all('coc_members'),all('coc_attacks')]);try{const{data}=await sb.from('coc_settings').select('*').eq('id',1).maybeSingle();if(data)cfg={min:data.min_attacks,pct:data.min_pct}}catch(e){}render()}catch(e){alert('Gagal memuat: '+e.message)}}
@@ -58,12 +62,13 @@ function calc(){
  return[...el,...s.filter(x=>!x.rank).sort((a,b)=>b.n-a.n)];
 }
 function render(){
+ $('sq').style.display=tab=='csv'?'none':'';
  $('hb').textContent=admin?'Keluar':'Login Admin';$('hb').onclick=admin?()=>sb.auth.signOut():showLogin;
  $('tabs').innerHTML=TABS.map(([k,l])=>`<button class="${tab==k?'':'g'}" onclick="tab='${k}';render()">${l}</button>`).join('');
  $('view').innerHTML=(admin?'':'<div class="c"><small>👁️ Mode lihat saja. Untuk mengubah data, tekan Login Admin.</small></div>')+{rekap:vRekap,atk:vAtk,mem:vMem,csv:vCsv}[tab]();
 }
 function vRekap(){
- const rows=calc().map(x=>`<tr class="${x.rank<=15?'top':x.rank<=30?'mid':''}"><td>${x.rank||'-'}</td><td class="l">${esc(x.m.name)}</td><td>${esc(x.m.tag)}</td><td>${x.n}</td><td>${x.r}</td><td>${x.n?Math.round(x.pr*100)+'%':'-'}</td><td>${x.n?x.avg.toFixed(2):'-'}</td><td>${x.n?x.avgp.toFixed(1):'-'}</td><td>${x.rec}</td></tr>`).join('');
+ const rows=calc().filter(x=>hit(x.m)).map(x=>`<tr class="${x.rank<=15?'top':x.rank<=30?'mid':''}"><td>${x.rank||'-'}</td><td class="l">${esc(x.m.name)}</td><td>${esc(x.m.tag)}</td><td>${x.n}</td><td>${x.r}</td><td>${x.n?Math.round(x.pr*100)+'%':'-'}</td><td>${x.n?x.avg.toFixed(2):'-'}</td><td>${x.n?x.avgp.toFixed(1):'-'}</td><td>${x.rec}</td></tr>`).join('');
  return`<div class="c"><h2>Pengaturan</h2><div class="row"><div><small>Minimal serangan dinilai</small><input type="number" min="1" value="${cfg.min}" ${admin?'':'disabled'} onchange="setCfg('min',this.value)"></div>
  <div><small>Minimal % rata (Prioritas)</small><input type="number" min="0" max="100" value="${cfg.pct}" ${admin?'':'disabled'} onchange="setCfg('pct',this.value)"></div></div>
  <small>Rata = 3 bintang. Hijau = 15 teratas, kuning = 16–30.${admin?'':' Angka pengaturan ini diatur oleh admin.'}</small></div>
@@ -73,7 +78,7 @@ async function setCfg(k,v){if(!admin)return render();const old={...cfg};cfg[k]=M
 function vAtk(){
  const opts=members.filter(m=>m.status!=='Keluar').map(m=>`<option value="${m.id}" ${m.id==last.m?'selected':''}>${esc(m.name)} ${esc(m.tag)}</option>`).join('');
  const by=Object.fromEntries(members.map(m=>[m.id,m]));
- const list=attacks.slice(-50).reverse().map(a=>`<tr><td>${a.war_date||''}</td><td class="l">${esc(by[a.member_id]?.name)}</td><td>${a.attack_no||''}</td><td>${a.stars}★</td><td>${a.percent??''}</td>${admin?`<td><button class="r" onclick="delRow('coc_attacks','${a.id}')">✕</button></td>`:''}</tr>`).join('');
+ const list=attacks.filter(a=>by[a.member_id]&&hit(by[a.member_id])).slice(-50).reverse().map(a=>`<tr><td>${a.war_date||''}</td><td class="l">${esc(by[a.member_id]?.name)}</td><td>${a.attack_no||''}</td><td>${a.stars}★</td><td>${a.percent??''}</td>${admin?`<td><button class="r" onclick="delRow('coc_attacks','${a.id}')">✕</button></td>`:''}</tr>`).join('');
  return(admin?`<div class="c"><h2>Tambah serangan</h2><div class="row"><input type="date" id="ad" value="${last.d}"><input id="ao" placeholder="Lawan clan" value="${esc(last.o)}"></div>
  <select id="am"><option value="">Pilih member</option>${opts}</select>
  <div class="row"><select id="an"><option>1</option><option>2</option></select><select id="as"><option>3</option><option>2</option><option>1</option><option>0</option></select></div>
@@ -88,11 +93,11 @@ async function addAtk(){
  attacks.push(...data);render();
 }
 function vMem(){
- const list=members.map(m=>`<tr><td class="l">${esc(m.name)}</td><td>${esc(m.tag)}</td><td>${!admin?esc(m.role):`<select style="width:auto;margin:0;padding:5px" onchange="setRole('${m.id}',this.value)">${['Member','Elder','Co-Leader','Leader'].map(r=>`<option ${r==m.role?'selected':''}>${r}</option>`).join('')}</select>`}</td>${admin?`<td><button class="g" style="padding:5px" onclick="togStat('${m.id}')">${m.status}</button></td><td><button class="r" onclick="delRow('coc_members','${m.id}')">✕</button></td>`:`<td>${m.status}</td>`}</tr>`).join('');
+ const list=members.filter(hit).map(m=>`<tr><td class="l">${esc(m.name)}</td><td>${esc(m.tag)}</td><td>${!admin?esc(m.role):`<select style="width:auto;margin:0;padding:5px" onchange="setRole('${m.id}',this.value)">${['Member','Elder','Co-Leader','Leader'].map(r=>`<option ${r==m.role?'selected':''}>${r}</option>`).join('')}</select>`}</td>${admin?`<td><button class="g" style="padding:5px" onclick="togStat('${m.id}')">${m.status}</button></td><td><button class="r" onclick="delRow('coc_members','${m.id}')">✕</button></td>`:`<td>${m.status}</td>`}</tr>`).join('');
  return(admin?`<div class="c"><h2>Tambah member</h2><div class="row"><input id="mn" placeholder="Nama"><input id="mt" placeholder="Tagar #P2YLQ8R"></div>
  <div class="row"><input id="mh" type="number" placeholder="Town Hall"><select id="mr"><option>Member</option><option>Elder</option><option>Co-Leader</option><option>Leader</option></select></div>
  <button onclick="addMem()">Simpan</button></div>`:'')+`
- <div class="c sc"><h2>${members.length} member</h2><table><tr><th>Nama</th><th>Tagar</th><th>Role</th><th>Status</th>${admin?'<th></th>':''}</tr>${list||'<tr><td colspan="5">Kosong</td></tr>'}</table></div>`;
+ <div class="c sc"><h2>${members.filter(hit).length} member</h2><table><tr><th>Nama</th><th>Tagar</th><th>Role</th><th>Status</th>${admin?'<th></th>':''}</tr>${list||'<tr><td colspan="5">Kosong</td></tr>'}</table></div>`;
 }
 async function addMem(){
  const name=$('mn').value.trim(),tag=normTag($('mt').value);if(!name||!tag)return alert('Nama dan tagar wajib diisi');
