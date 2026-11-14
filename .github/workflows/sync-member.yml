@@ -13,28 +13,42 @@ jobs:
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           SUPABASE_URL: https://taffistnkxpbutvwxeyo.supabase.co
           CLAN_TAG: '#2UQ9UG0Y9'
+          HAPUS_SETELAH_HARI: '7'
         run: |
           node - <<'EOF'
+          if (!process.env.COC_API_KEY || !process.env.SUPABASE_SECRET_KEY) { console.error('Secret belum lengkap: butuh COC_API_KEY dan SUPABASE_SECRET_KEY.'); process.exit(1); }
           const KEY = process.env.COC_API_KEY, SK = process.env.SUPABASE_SECRET_KEY;
           const BASE = process.env.SUPABASE_URL + '/rest/v1/coc_members';
+          const HARI = Number(process.env.HAPUS_SETELAH_HARI || '7');
           const ROLE = { leader: 'Leader', coLeader: 'Co-Leader', admin: 'Elder', member: 'Member' };
           const sb = { apikey: SK, 'Content-Type': 'application/json' };
+          const fail = (msg, extra) => { console.error(msg, extra || ''); process.exit(1); };
+          const patch = async (id, body) => { const p = await fetch(BASE + '?id=eq.' + id, { method: 'PATCH', headers: { ...sb, Prefer: 'return=minimal' }, body: JSON.stringify(body) }); if (!p.ok) console.error('Gagal memperbarui:', id, p.status); };
           (async () => {
             const r = await fetch('https://cocproxy.royaleapi.dev/v1/clans/' + encodeURIComponent(process.env.CLAN_TAG) + '/members?limit=50', { headers: { Authorization: 'Bearer ' + KEY } });
-            if (!r.ok) { console.error('API Clash of Clans gagal:', r.status, await r.text()); process.exit(1); }
+            if (!r.ok) fail('API Clash of Clans gagal:', r.status + ' ' + await r.text());
             const items = (await r.json()).items || [];
-            if (!items.length) { console.error('Daftar member kosong, proses dihentikan.'); process.exit(1); }
-            const rows = items.map(m => ({ name: m.name, tag: m.tag, th: m.townHallLevel || null, role: ROLE[m.role] || 'Member', status: 'Aktif' }));
+            if (!items.length) fail('Daftar member kosong, proses dihentikan.');
+            const rows = items.map(m => ({ name: m.name, tag: m.tag, th: m.townHallLevel || null, role: ROLE[m.role] || 'Member', status: 'Aktif', left_at: null }));
             const up = await fetch(BASE + '?on_conflict=tag', { method: 'POST', headers: { ...sb, Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(rows) });
-            if (!up.ok) { console.error('Simpan ke Supabase gagal:', up.status, await up.text()); process.exit(1); }
-            const cur = await fetch(BASE + '?select=tag,status&limit=1000', { headers: sb });
-            if (!cur.ok) { console.error('Baca Supabase gagal:', cur.status, await cur.text()); process.exit(1); }
+            if (!up.ok) fail('Simpan ke Supabase gagal (sudah menjalankan SQL kolom left_at?):', up.status + ' ' + await up.text());
+            const cur = await fetch(BASE + '?select=id,tag,status,left_at&limit=1000', { headers: sb });
+            if (!cur.ok) fail('Baca Supabase gagal:', cur.status + ' ' + await cur.text());
+            const list = await cur.json();
             const inClan = new Set(items.map(m => m.tag));
-            const left = (await cur.json()).filter(x => x.status === 'Aktif' && !inClan.has(x.tag));
-            for (const x of left) {
-              const p = await fetch(BASE + '?tag=eq.' + encodeURIComponent(x.tag), { method: 'PATCH', headers: { ...sb, Prefer: 'return=minimal' }, body: JSON.stringify({ status: 'Keluar' }) });
-              if (!p.ok) console.error('Gagal menandai keluar:', x.tag, p.status);
+            const now = new Date().toISOString();
+            const left = list.filter(x => x.status === 'Aktif' && !inClan.has(x.tag));
+            if (left.length > 10) fail('Terlalu banyak member (' + left.length + ') tampak keluar sekaligus. Dihentikan demi keamanan, cek tagar klan.');
+            for (const x of left) await patch(x.id, { status: 'Keluar', left_at: now });
+            const noDate = list.filter(x => x.status === 'Keluar' && !x.left_at);
+            for (const x of noDate) await patch(x.id, { left_at: now });
+            const batas = Date.now() - HARI * 86400e3;
+            const del = list.filter(x => x.status === 'Keluar' && x.left_at && new Date(x.left_at).getTime() < batas && !inClan.has(x.tag));
+            if (del.length > 10) fail('Terlalu banyak member (' + del.length + ') akan dihapus sekaligus. Dihentikan demi keamanan.');
+            for (const x of del) {
+              const d = await fetch(BASE + '?id=eq.' + x.id, { method: 'DELETE', headers: { ...sb, Prefer: 'return=minimal' } });
+              if (!d.ok) console.error('Gagal menghapus:', x.tag, d.status);
             }
-            console.log('Selesai. Member klan: ' + rows.length + ', ditandai Keluar: ' + left.length);
-          })().catch(e => { console.error(e); process.exit(1); });
+            console.log('Selesai. Member klan: ' + rows.length + ', ditandai Keluar: ' + left.length + ', dihapus (keluar > ' + HARI + ' hari): ' + del.length);
+          })().catch(e => fail(e));
           EOF
