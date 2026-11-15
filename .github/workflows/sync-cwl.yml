@@ -1,0 +1,89 @@
+name: Sinkron Serangan CWL Rudal Penceng
+on:
+  schedule:
+    - cron: '15 */3 * * *'
+  workflow_dispatch:
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tarik serangan CWL lalu simpan ke Supabase
+        env:
+          COC_API_KEY: ${{ secrets.COC_API_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_URL: https://taffistnkxpbutvwxeyo.supabase.co
+          CLAN_TAG: '#2UQ9UG0Y9'
+        run: |
+          node - <<'EOF'
+          if (!process.env.COC_API_KEY || !process.env.SUPABASE_SECRET_KEY) { console.error('Secret belum lengkap: butuh COC_API_KEY dan SUPABASE_SECRET_KEY.'); process.exit(1); }
+          const KEY = process.env.COC_API_KEY, SK = process.env.SUPABASE_SECRET_KEY, TAG = process.env.CLAN_TAG;
+          const REST = process.env.SUPABASE_URL + '/rest/v1/';
+          const H = { apikey: SK, 'Content-Type': 'application/json' };
+          const coc = p => fetch('https://cocproxy.royaleapi.dev/v1/' + p, { headers: { Authorization: 'Bearer ' + KEY } });
+          const toDate = s => new Date(s.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})\.(\d{3})Z$/, '$1-$2-$3T$4:$5:$6.$7Z'));
+          const day = d => d.toISOString().slice(0, 10);
+          const fail = (msg, extra) => { console.error(msg, extra || ''); process.exit(1); };
+          const getJson = async (url) => { const r = await fetch(url, { headers: H }); if (!r.ok) fail('Baca Supabase gagal:', r.status + ' ' + await r.text()); return r.json(); };
+          (async () => {
+            const g = await coc('clans/' + encodeURIComponent(TAG) + '/currentwar/leaguegroup');
+            if (g.status === 404) { console.log('Klan tidak sedang mengikuti CWL.'); return; }
+            if (g.status === 403) fail('Ditolak (403). Cek: log war klan harus Publik di game, dan IP kunci API harus 45.79.218.79.', await g.text());
+            if (!g.ok) fail('API Clash of Clans gagal:', g.status + ' ' + await g.text());
+            const grp = await g.json();
+            const wars = [];
+            (grp.rounds || []).forEach((r, i) => (r.warTags || []).forEach(t => { if (t && t !== '#0') wars.push({ t, ronde: i + 1 }); }));
+            if (!wars.length) { console.log('CWL belum dimulai, belum ada ronde.'); return; }
+            const atk = [], hasil = [];
+            for (const { t, ronde } of wars) {
+              const r = await coc('clanwarleagues/wars/' + encodeURIComponent(t));
+              if (!r.ok) continue;
+              const w = await r.json();
+              if (!['inWar', 'warEnded'].includes(w.state)) continue;
+              const mine = w.clan && w.clan.tag === TAG ? w.clan : (w.opponent && w.opponent.tag === TAG ? w.opponent : null);
+              if (!mine) continue;
+              const other = mine === w.clan ? w.opponent : w.clan;
+              const oppPos = Object.fromEntries(((other && other.members) || []).map(x => [x.tag, x.mapPosition]));
+              const date = day(new Date(toDate(w.endTime).getTime() + 7 * 3600e3));
+              const bk = mine.stars, bl = other && other.stars, pk = mine.destructionPercentage, pl = other && other.destructionPercentage;
+              let hs = 'Berjalan';
+              if (w.state === 'warEnded') hs = bk > bl ? 'Menang' : bk < bl ? 'Kalah' : (pk > pl ? 'Menang' : pk < pl ? 'Kalah' : 'Seri');
+              hasil.push({ musim: grp.season || '-', ronde, war_date: date, lawan: (other && other.name) || null, bintang_kita: bk, bintang_lawan: bl, persen_kita: pk, persen_lawan: pl, hasil: hs });
+              for (const m of (mine.members || [])) {
+                const a = (m.attacks || [])[0];
+                if (a) atk.push({ tag: m.tag, name: m.name, th: m.townhallLevel || null, date, opp: (other && other.name) || null, stars: a.stars, pct: a.destructionPercentage, dur: a.duration ?? null, tgt: oppPos[a.defenderTag] ?? null });
+              }
+            }
+            if (hasil.length) {
+              const hp = await fetch(REST + 'coc_cwl_hasil?on_conflict=musim,ronde', { method: 'POST', headers: { ...H, Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(hasil) });
+              if (!hp.ok) fail('Simpan hasil ronde gagal (sudah menjalankan SQL tabel coc_cwl_hasil?):', hp.status + ' ' + await hp.text());
+            }
+            if (!atk.length) { console.log('Hasil ronde disimpan: ' + hasil.length + '. Belum ada serangan CWL untuk dicatat.'); return; }
+            let mem = await getJson(REST + 'coc_members?select=id,tag&limit=1000');
+            let byTag = Object.fromEntries(mem.map(x => [x.tag, x.id]));
+            const miss = [...new Map(atk.filter(a => !byTag[a.tag]).map(a => [a.tag, { name: a.name, tag: a.tag, th: a.th, role: 'Member', status: 'Aktif' }])).values()];
+            if (miss.length) {
+              const p = await fetch(REST + 'coc_members?on_conflict=tag', { method: 'POST', headers: { ...H, Prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(miss) });
+              if (!p.ok) fail('Tambah member baru gagal:', p.status + ' ' + await p.text());
+              mem = await getJson(REST + 'coc_members?select=id,tag&limit=1000');
+              byTag = Object.fromEntries(mem.map(x => [x.tag, x.id]));
+            }
+            const old = await getJson(REST + 'coc_attacks?select=id,member_id,war_date,durasi,target&jenis=eq.cwl&limit=1000');
+            const oldBy = new Map(old.map(x => [x.member_id + '|' + x.war_date, x]));
+            const all = atk.map(a => ({ war_date: a.date, opponent: a.opp, member_id: byTag[a.tag], attack_no: 1, stars: a.stars, percent: a.pct, jenis: 'cwl', durasi: a.dur, target: a.tgt }));
+            let fixed = 0;
+            for (const x of all) {
+              const o = oldBy.get(x.member_id + '|' + x.war_date);
+              if (o && ((o.durasi == null && x.durasi != null) || (o.target == null && x.target != null))) {
+                const p = await fetch(REST + 'coc_attacks?id=eq.' + o.id, { method: 'PATCH', headers: { ...H, Prefer: 'return=minimal' }, body: JSON.stringify({ durasi: x.durasi, target: x.target }) });
+                if (p.ok) fixed++;
+              }
+            }
+            const seen = new Set(oldBy.keys());
+            const rows = all.filter(x => { const k = x.member_id + '|' + x.war_date; if (seen.has(k)) return false; seen.add(k); return true; });
+            if (rows.length) {
+              const p = await fetch(REST + 'coc_attacks', { method: 'POST', headers: { ...H, Prefer: 'return=minimal' }, body: JSON.stringify(rows) });
+              if (!p.ok) fail('Simpan serangan CWL gagal (sudah menjalankan SQL kolom jenis, durasi, dan target?):', p.status + ' ' + await p.text());
+            }
+            console.log('Selesai. CWL musim ' + (grp.season || '-') + ': ronde disimpan ' + hasil.length + ', serangan di API ' + atk.length + ', baru disimpan ' + rows.length + ', durasi dilengkapi ' + fixed + ', member baru ' + miss.length);
+          })().catch(e => fail(e));
+          EOF
