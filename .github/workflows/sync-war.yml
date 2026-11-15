@@ -15,6 +15,7 @@ jobs:
           CLAN_TAG: '#2UQ9UG0Y9'
         run: |
           node - <<'EOF'
+          if (!process.env.COC_API_KEY || !process.env.SUPABASE_SECRET_KEY) { console.error('Secret belum lengkap: butuh COC_API_KEY dan SUPABASE_SECRET_KEY.'); process.exit(1); }
           const KEY = process.env.COC_API_KEY, SK = process.env.SUPABASE_SECRET_KEY;
           const REST = process.env.SUPABASE_URL + '/rest/v1/';
           const H = { apikey: SK, 'Content-Type': 'application/json' };
@@ -28,9 +29,10 @@ jobs:
             if (!r.ok) fail('API Clash of Clans gagal:', r.status + ' ' + await r.text());
             const w = await r.json();
             if (!['inWar', 'warEnded'].includes(w.state)) { console.log('Belum ada serangan untuk dicatat. Status war: ' + w.state); return; }
+            const oppPos = Object.fromEntries(((w.opponent && w.opponent.members) || []).map(x => [x.tag, x.mapPosition]));
             const atk = [];
             for (const m of (w.clan.members || [])) {
-              (m.attacks || []).slice().sort((a, b) => a.order - b.order).forEach((a, i) => atk.push({ tag: m.tag, name: m.name, th: m.townhallLevel || null, no: i + 1, stars: a.stars, pct: a.destructionPercentage }));
+              (m.attacks || []).slice().sort((a, b) => a.order - b.order).forEach((a, i) => atk.push({ tag: m.tag, name: m.name, th: m.townhallLevel || null, no: i + 1, stars: a.stars, pct: a.destructionPercentage, dur: a.duration ?? null, tgt: oppPos[a.defenderTag] ?? null }));
             }
             if (!atk.length) { console.log('War berjalan, belum ada serangan.'); return; }
             const warDate = day(new Date(toDate(w.endTime).getTime() + 7 * 3600e3));
@@ -46,14 +48,23 @@ jobs:
             }
             const d0 = new Date(warDate + 'T00:00:00Z').getTime();
             const lo = day(new Date(d0 - 86400e3)), hi = day(new Date(d0 + 86400e3));
-            const old = await getJson(REST + 'coc_attacks?select=member_id,attack_no,stars,percent&war_date=gte.' + lo + '&war_date=lte.' + hi + '&limit=1000');
-            const have = new Set(old.map(x => [x.member_id, x.attack_no, x.stars, x.percent].join('|')));
-            const rows = atk.map(a => ({ war_date: warDate, opponent: opp, member_id: byTag[a.tag], attack_no: a.no, stars: a.stars, percent: a.pct }))
-              .filter(x => !have.has([x.member_id, x.attack_no, x.stars, x.percent].join('|')));
+            const old = await getJson(REST + 'coc_attacks?select=id,member_id,attack_no,stars,percent,durasi,target&war_date=gte.' + lo + '&war_date=lte.' + hi + '&limit=1000');
+            const key = x => [x.member_id, x.attack_no, x.stars, x.percent].join('|');
+            const oldBy = new Map(old.map(x => [key(x), x]));
+            const all = atk.map(a => ({ war_date: warDate, opponent: opp, member_id: byTag[a.tag], attack_no: a.no, stars: a.stars, percent: a.pct, durasi: a.dur, target: a.tgt }));
+            const rows = all.filter(x => !oldBy.has(key(x)));
+            let fixed = 0;
+            for (const x of all) {
+              const o = oldBy.get(key(x));
+              if (o && ((o.durasi == null && x.durasi != null) || (o.target == null && x.target != null))) {
+                const p = await fetch(REST + 'coc_attacks?id=eq.' + o.id, { method: 'PATCH', headers: { ...H, Prefer: 'return=minimal' }, body: JSON.stringify({ durasi: x.durasi, target: x.target }) });
+                if (p.ok) fixed++;
+              }
+            }
             if (rows.length) {
               const p = await fetch(REST + 'coc_attacks', { method: 'POST', headers: { ...H, Prefer: 'return=minimal' }, body: JSON.stringify(rows) });
-              if (!p.ok) fail('Simpan serangan gagal:', p.status + ' ' + await p.text());
+              if (!p.ok) fail('Simpan serangan gagal (sudah menjalankan SQL kolom durasi dan target?):', p.status + ' ' + await p.text());
             }
-            console.log('Selesai. War vs ' + opp + ' (' + warDate + '), status ' + w.state + ': serangan di API ' + atk.length + ', baru disimpan ' + rows.length + ', member baru ' + miss.length);
+            console.log('Selesai. War vs ' + opp + ' (' + warDate + '), status ' + w.state + ': serangan di API ' + atk.length + ', baru disimpan ' + rows.length + ', durasi dilengkapi ' + fixed + ', member baru ' + miss.length);
           })().catch(e => fail(e));
           EOF
