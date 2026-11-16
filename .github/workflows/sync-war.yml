@@ -34,18 +34,23 @@ jobs:
             for (const m of (w.clan.members || [])) {
               (m.attacks || []).slice().sort((a, b) => a.order - b.order).forEach((a, i) => atk.push({ tag: m.tag, name: m.name, th: m.townhallLevel || null, no: i + 1, stars: a.stars, pct: a.destructionPercentage, dur: a.duration ?? null, tgt: oppPos[a.defenderTag] ?? null }));
             }
-            if (!atk.length) { console.log('War berjalan, belum ada serangan.'); return; }
             const warDate = day(new Date(toDate(w.endTime).getTime() + 7 * 3600e3));
             const opp = (w.opponent && w.opponent.name) || null;
             let mem = await getJson(REST + 'coc_members?select=id,tag&limit=1000');
             let byTag = Object.fromEntries(mem.map(x => [x.tag, x.id]));
-            const miss = [...new Map(atk.filter(a => !byTag[a.tag]).map(a => [a.tag, { name: a.name, tag: a.tag, th: a.th, role: 'Member', status: 'Aktif' }])).values()];
+            const miss = [...new Map((w.clan.members || []).filter(m => !byTag[m.tag]).map(m => [m.tag, { name: m.name, tag: m.tag, th: m.townhallLevel || null, role: 'Member', status: 'Aktif' }])).values()];
             if (miss.length) {
               const p = await fetch(REST + 'coc_members?on_conflict=tag', { method: 'POST', headers: { ...H, Prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(miss) });
               if (!p.ok) fail('Tambah member baru gagal:', p.status + ' ' + await p.text());
               mem = await getJson(REST + 'coc_members?select=id,tag&limit=1000');
               byTag = Object.fromEntries(mem.map(x => [x.tag, x.id]));
             }
+            const per = (w.clan.members || []).map(m => ({ war_date: warDate, member_id: byTag[m.tag], maks: w.attacksPerMember ?? 2, dipakai: (m.attacks || []).length, selesai: w.state === 'warEnded' })).filter(x => x.member_id);
+            if (per.length) {
+              const pp = await fetch(REST + 'coc_peserta?on_conflict=war_date,member_id', { method: 'POST', headers: { ...H, Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(per) });
+              if (!pp.ok) fail('Simpan peserta war gagal (sudah menjalankan SQL tabel coc_peserta?):', pp.status + ' ' + await pp.text());
+            }
+            if (!atk.length) { console.log('Peserta war disimpan: ' + per.length + '. Belum ada serangan.'); return; }
             const d0 = new Date(warDate + 'T00:00:00Z').getTime();
             const lo = day(new Date(d0 - 86400e3)), hi = day(new Date(d0 + 86400e3));
             const old = await getJson(REST + 'coc_attacks?select=id,member_id,attack_no,stars,percent,durasi,target&war_date=gte.' + lo + '&war_date=lte.' + hi + '&limit=1000');
@@ -65,6 +70,6 @@ jobs:
               const p = await fetch(REST + 'coc_attacks', { method: 'POST', headers: { ...H, Prefer: 'return=minimal' }, body: JSON.stringify(rows) });
               if (!p.ok) fail('Simpan serangan gagal (sudah menjalankan SQL kolom durasi dan target?):', p.status + ' ' + await p.text());
             }
-            console.log('Selesai. War vs ' + opp + ' (' + warDate + '), status ' + w.state + ': serangan di API ' + atk.length + ', baru disimpan ' + rows.length + ', durasi dilengkapi ' + fixed + ', member baru ' + miss.length);
+            console.log('Selesai. War vs ' + opp + ' (' + warDate + '), status ' + w.state + ': serangan di API ' + atk.length + ', baru disimpan ' + rows.length + ', durasi dilengkapi ' + fixed + ', peserta ' + per.length + ', member baru ' + miss.length);
           })().catch(e => fail(e));
           EOF
