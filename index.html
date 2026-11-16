@@ -84,7 +84,7 @@ function render(){
  $('tabs').innerHTML=TABS.filter(([k])=>k!=='csv'||admin).map(([k,l])=>`<button class="${tab==k?'on':''}" onclick="tab='${k}';render()"><span class="ic">${({rekap:'🏆',atk:'⚔️',cwl:'🛡️',mem:'👥',csv:'📄'})[k]}</span>${l}</button>`).join('');
  $('view').innerHTML={rekap:vRekap,atk:vAtk,cwl:vCwl,mem:vMem,csv:vCsv}[tab]();
 }
-let cfgOpen=false,mf='all',plOpen=true;
+let cfgOpen=false,mf='all',plOpen=true,cwlMusim=null;
 function vRekap(){
  const medal=i=>i==1?'🥇':i==2?'🥈':i==3?'🥉':'#'+i;
  const BC={'Prioritas CWL':'b-green','Cadangan':'b-yellow','Data kurang':'b-gray','Sudah keluar':'b-red'};
@@ -121,23 +121,27 @@ async function addCwl(){
  const{data,error}=await sb.from('coc_attacks').insert(row).select();if(error)return alert(error.message);
  attacks.push(...data);render();
 }
+const musimLabel=s=>{const m=String(s).match(/^(\d{4})-(\d\d)/);return m?BLN[+m[2]-1]+' '+m[1]:String(s)};
 function vCwl(){
  const by=Object.fromEntries(members.map(m=>[m.id,m]));
- const cw=attacks.filter(a=>a.jenis==='cwl'&&recent(a)&&by[a.member_id]);
- const HB={Menang:'b-green',Kalah:'b-red',Seri:'b-gray',Berjalan:'b-yellow'},seasons={};
- cwlHasil.forEach(h=>{(seasons[h.musim]=seasons[h.musim]||[]).push(h)});
- const hasil=Object.keys(seasons).sort().reverse().slice(0,3).map((mu,i)=>{const L=seasons[mu].slice().sort((x,y)=>x.ronde-y.ronde),c=k=>L.filter(x=>x.hasil===k).length;
-  const pc=n=>n==null?'-':(+n).toFixed(1);
-  const rows=L.map(h=>`<tr><td>${h.ronde}</td><td class="l">${esc(h.lawan||'-')}<br><small>${fmtD(h.war_date)}</small></td><td>⭐ ${h.bintang_kita??'-'} – ${h.bintang_lawan??'-'}<br><small>🎯 ${pc(h.persen_kita)}% – ${pc(h.persen_lawan)}%</small></td><td><span class="badge ${HB[h.hasil]||'b-gray'}">${esc(h.hasil||'-')}</span></td></tr>`).join('');
-  return`<details class="c" ${i<1?'open':''}><summary><b>Musim ${esc(mu)}</b><br><small>${c('Menang')} menang · ${c('Kalah')} kalah · ${c('Seri')} seri${c('Berjalan')?' · '+c('Berjalan')+' berjalan':''}</small></summary><div class="sc"><table style="min-width:0"><tr><th>Ronde</th><th>Lawan</th><th>Bintang (kita – lawan)</th><th>Hasil</th></tr>${rows}</table></div></details>`}).join('');
+ const seasonOf=a=>String(a.war_date||adate(a)).slice(0,7);
+ const allCw=attacks.filter(a=>a.jenis==='cwl'&&by[a.member_id]);
+ const musims=[...new Set([...allCw.map(seasonOf),...cwlHasil.map(h=>String(h.musim))])].filter(Boolean).sort().reverse();
+ const cur=musims.includes(cwlMusim)?cwlMusim:musims[0];
+ const cw=allCw.filter(a=>seasonOf(a)===cur);
+ const chips=musims.length>1?`<div class="chs">${musims.map(m=>`<button class="ch ${m==cur?'on':''}" onclick="cwlMusim='${m}';render()">${musimLabel(m)}</button>`).join('')}</div>`:'';
+ const HB={Menang:'b-green',Kalah:'b-red',Seri:'b-gray',Berjalan:'b-yellow'};
+ const L=cwlHasil.filter(h=>String(h.musim)===cur).sort((x,y)=>x.ronde-y.ronde),c=k=>L.filter(x=>x.hasil===k).length,pc=n=>n==null?'-':(+n).toFixed(1);
+ const hasil=L.length?`<details class="c" open><summary><b>Musim ${esc(musimLabel(cur))}</b><br><small>${c('Menang')} menang · ${c('Kalah')} kalah · ${c('Seri')} seri${c('Berjalan')?' · '+c('Berjalan')+' berjalan':''}</small></summary><div class="sc"><table style="min-width:0"><tr><th>Ronde</th><th>Lawan</th><th>Bintang (kita – lawan)</th><th>Hasil</th></tr>${L.map(h=>`<tr><td>${h.ronde}</td><td class="l">${esc(h.lawan||'-')}<br><small>${fmtD(h.war_date)}</small></td><td>⭐ ${h.bintang_kita??'-'} – ${h.bintang_lawan??'-'}<br><small>🎯 ${pc(h.persen_kita)}% – ${pc(h.persen_lawan)}%</small></td><td><span class="badge ${HB[h.hasil]||'b-gray'}">${esc(h.hasil||'-')}</span></td></tr>`).join('')}</table></div></details>`:'';
  const per={};cw.forEach(a=>{const p=per[a.member_id]=per[a.member_id]||{n:0,st:0,pc:0,r3:0,t:0,tn:0};p.n++;p.st+=a.stars;p.pc+=(a.percent||0);if(a.stars===3)p.r3++;if(a.durasi!=null){p.t+=a.durasi;p.tn++}});
  const pl=Object.entries(per).map(([id,p])=>({m:by[id],...p})).filter(x=>hit(x.m)).sort((x,y)=>y.st-x.st||(y.pc/y.n)-(x.pc/x.n));
  const players=pl.map((x,i)=>`<div class="mc"><div class="rk">${i<3?['🥇','🥈','🥉'][i]:'#'+(i+1)}</div><div class="mi"><b>${esc(x.m.name)}</b><br><small>${esc(x.m.tag)}${x.m.th?' · TH'+x.m.th:''}</small><div class="st"><span>⭐ ${x.st} bintang</span><span>⚔️ ${x.n} serangan</span><span>🎯 ${Math.round(x.pc/x.n)}%</span><span>3★ ${x.r3}×</span><span>⏱️ ${x.tn?fmtDur(x.t/x.tn):'-'}</span></div></div></div>`).join('');
  const days={};cw.filter(a=>hit(by[a.member_id])).forEach(a=>{(days[adate(a)]=days[adate(a)]||[]).push(a)});
- const cards=Object.keys(days).sort().reverse().map((d,i)=>{const L=days[d].slice().sort((x,y)=>String(by[x.member_id].name).localeCompare(by[y.member_id].name)),o=(L.find(x=>x.opponent)||{}).opponent||'',st=L.reduce((t,x)=>t+x.stars,0);
-  const rows=L.map(a=>`<tr><td class="l">${esc(by[a.member_id].name)}</td><td>${a.target?'#'+a.target:'-'}</td><td>${a.stars}★</td><td>${a.percent??''}</td><td>${fmtDur(a.durasi)}</td>${admin?`<td><button class="r" onclick="delRow('coc_attacks','${a.id}')">✕</button></td>`:''}</tr>`).join('');
-  return`<details class="c" ${i<1||q?'open':''}><summary><b>${fmtD(d)}</b>${o?' vs '+esc(o):''}<br><small>${L.length} serangan · ${st} bintang${avgDur(L)!=null?' · ⏱️ '+fmtDur(avgDur(L)):''}</small></summary><div class="sc"><table style="min-width:0"><tr><th>Nama</th><th>Target</th><th>Bintang</th><th>%</th><th>Waktu</th>${admin?'<th></th>':''}</tr>${rows}</table></div></details>`}).join('');
- return(admin?cwlForm():'')+`<h3 class="sec">🏁 Hasil CWL</h3>${hasil||'<div class="c">Belum ada hasil CWL.</div>'}<details class="sec2" ${plOpen?'open':''} ontoggle="plOpen=this.open"><summary>🛡️ Pemain CWL <small>· ${pl.length} pemain</small></summary><div class="list">${players||'<div class="c">Belum ada serangan CWL.</div>'}</div></details><h3 class="sec">⚔️ Serangan CWL</h3>${cards||'<div class="c">Belum ada serangan CWL.</div>'}`;
+ const cards=Object.keys(days).sort().reverse().map((d,i)=>{const Q=days[d].slice().sort((x,y)=>String(by[x.member_id].name).localeCompare(by[y.member_id].name)),o=(Q.find(x=>x.opponent)||{}).opponent||'',st=Q.reduce((t,x)=>t+x.stars,0);
+  const rows=Q.map(a=>`<tr><td class="l">${esc(by[a.member_id].name)}</td><td>${a.target?'#'+a.target:'-'}</td><td>${a.stars}★</td><td>${a.percent??''}</td><td>${fmtDur(a.durasi)}</td>${admin?`<td><button class="r" onclick="delRow('coc_attacks','${a.id}')">✕</button></td>`:''}</tr>`).join('');
+  return`<details class="c" ${i<1||q?'open':''}><summary><b>${fmtD(d)}</b>${o?' vs '+esc(o):''}<br><small>${Q.length} serangan · ${st} bintang${avgDur(Q)!=null?' · ⏱️ '+fmtDur(avgDur(Q)):''}</small></summary><div class="sc"><table style="min-width:0"><tr><th>Nama</th><th>Target</th><th>Bintang</th><th>%</th><th>Waktu</th>${admin?'<th></th>':''}</tr>${rows}</table></div></details>`}).join('');
+ const none='<div class="c">Belum ada data CWL.</div>';
+ return(admin?cwlForm():'')+chips+`<h3 class="sec">🏁 Hasil CWL${cur?' · '+esc(musimLabel(cur)):''}</h3>${hasil||none}<details class="sec2" ${plOpen?'open':''} ontoggle="plOpen=this.open"><summary>🛡️ Pemain CWL <small>· ${pl.length} pemain</small></summary><div class="list">${players||none}</div></details><h3 class="sec">⚔️ Serangan CWL</h3>${cards||none}`;
 }
 async function addAtk(){
  const v=id=>$(id).value;if(!v('am'))return alert('Pilih member dulu');const dur=parseDur(v('aw'));if(Number.isNaN(dur))return alert('Format waktu salah. Contoh: 1:50');
