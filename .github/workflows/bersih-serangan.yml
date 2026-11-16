@@ -34,6 +34,9 @@ jobs:
             };
             const a = await hapus('war_date=lt.' + tgl + '&jenis=neq.cwl');
             const b = await hapus('war_date=is.null&created_at=lt.' + iso + '&jenis=neq.cwl');
-            console.log('Selesai. Serangan war lebih lama dari ' + HARI + ' hari (sebelum ' + tgl + ') dihapus: ' + (a + b) + '. Serangan CWL tidak dihapus.');
+            const pr = await fetch(process.env.SUPABASE_URL + '/rest/v1/coc_peserta?war_date=lt.' + tgl + '&select=id', { method: 'DELETE', headers: { ...H, Prefer: 'return=representation' } });
+            const c = pr.ok ? (await pr.json()).length : 0;
+            if (!pr.ok) console.error('Data kehadiran tidak dibersihkan (sudah menjalankan SQL tabel coc_peserta?):', pr.status);
+            console.log('Selesai. Serangan war lebih lama dari ' + HARI + ' hari (sebelum ' + tgl + ') dihapus: ' + (a + b) + ', data kehadiran lama dihapus: ' + c + '. Serangan CWL tidak dihapus.');
           })().catch(e => fail(e));
           EOF
