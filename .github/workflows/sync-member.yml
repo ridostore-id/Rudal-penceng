@@ -45,10 +45,14 @@ jobs:
             const batas = Date.now() - HARI * 86400e3;
             const del = list.filter(x => x.status === 'Keluar' && x.left_at && new Date(x.left_at).getTime() < batas && !inClan.has(x.tag));
             if (del.length > 10) fail('Terlalu banyak member (' + del.length + ') akan dihapus sekaligus. Dihentikan demi keamanan.');
+            let dihapus = 0, simpan = 0;
             for (const x of del) {
+              const cek = await fetch(process.env.SUPABASE_URL + '/rest/v1/coc_attacks?select=id&member_id=eq.' + x.id + '&jenis=eq.cwl&limit=1', { headers: sb });
+              if (!cek.ok) { console.error('Gagal memeriksa riwayat CWL:', x.tag, cek.status); continue; }
+              if ((await cek.json()).length) { simpan++; continue; }
               const d = await fetch(BASE + '?id=eq.' + x.id, { method: 'DELETE', headers: { ...sb, Prefer: 'return=minimal' } });
-              if (!d.ok) console.error('Gagal menghapus:', x.tag, d.status);
+              if (d.ok) dihapus++; else console.error('Gagal menghapus:', x.tag, d.status);
             }
-            console.log('Selesai. Member klan: ' + rows.length + ', ditandai Keluar: ' + left.length + ', dihapus (keluar > ' + HARI + ' hari): ' + del.length);
+            console.log('Selesai. Member klan: ' + rows.length + ', ditandai Keluar: ' + left.length + ', dihapus (keluar > ' + HARI + ' hari): ' + dihapus + ', dipertahankan karena punya riwayat CWL: ' + simpan);
           })().catch(e => fail(e));
           EOF
