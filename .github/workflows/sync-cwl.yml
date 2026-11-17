@@ -33,7 +33,7 @@ jobs:
             const wars = [];
             (grp.rounds || []).forEach((r, i) => (r.warTags || []).forEach(t => { if (t && t !== '#0') wars.push({ t, ronde: i + 1 }); }));
             if (!wars.length) { console.log('CWL belum dimulai, belum ada ronde.'); return; }
-            const atk = [], hasil = [];
+            const atk = [], hasil = [], rost = [];
             for (const { t, ronde } of wars) {
               const r = await coc('clanwarleagues/wars/' + encodeURIComponent(t));
               if (!r.ok) continue;
@@ -50,6 +50,7 @@ jobs:
               hasil.push({ musim: grp.season || '-', ronde, war_date: date, lawan: (other && other.name) || null, bintang_kita: bk, bintang_lawan: bl, persen_kita: pk, persen_lawan: pl, hasil: hs });
               for (const m of (mine.members || [])) {
                 const a = (m.attacks || [])[0];
+                rost.push({ tag: m.tag, name: m.name, th: m.townhallLevel || null, date, dipakai: (m.attacks || []).length, selesai: w.state === 'warEnded', maks: w.attacksPerMember ?? 1 });
                 if (a) atk.push({ tag: m.tag, name: m.name, th: m.townhallLevel || null, date, opp: (other && other.name) || null, stars: a.stars, pct: a.destructionPercentage, dur: a.duration ?? null, tgt: oppPos[a.defenderTag] ?? null });
               }
             }
@@ -57,16 +58,21 @@ jobs:
               const hp = await fetch(REST + 'coc_cwl_hasil?on_conflict=musim,ronde', { method: 'POST', headers: { ...H, Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(hasil) });
               if (!hp.ok) fail('Simpan hasil ronde gagal (sudah menjalankan SQL tabel coc_cwl_hasil?):', hp.status + ' ' + await hp.text());
             }
-            if (!atk.length) { console.log('Hasil ronde disimpan: ' + hasil.length + '. Belum ada serangan CWL untuk dicatat.'); return; }
             let mem = await getJson(REST + 'coc_members?select=id,tag&limit=1000');
             let byTag = Object.fromEntries(mem.map(x => [x.tag, x.id]));
-            const miss = [...new Map(atk.filter(a => !byTag[a.tag]).map(a => [a.tag, { name: a.name, tag: a.tag, th: a.th, role: 'Member', status: 'Aktif' }])).values()];
+            const miss = [...new Map(rost.filter(a => !byTag[a.tag]).map(a => [a.tag, { name: a.name, tag: a.tag, th: a.th, role: 'Member', status: 'Aktif' }])).values()];
             if (miss.length) {
               const p = await fetch(REST + 'coc_members?on_conflict=tag', { method: 'POST', headers: { ...H, Prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(miss) });
               if (!p.ok) fail('Tambah member baru gagal:', p.status + ' ' + await p.text());
               mem = await getJson(REST + 'coc_members?select=id,tag&limit=1000');
               byTag = Object.fromEntries(mem.map(x => [x.tag, x.id]));
             }
+            const per = rost.map(x => ({ war_date: x.date, member_id: byTag[x.tag], maks: x.maks, dipakai: x.dipakai, selesai: x.selesai, jenis: 'cwl' })).filter(x => x.member_id);
+            if (per.length) {
+              const pp = await fetch(REST + 'coc_peserta?on_conflict=war_date,member_id', { method: 'POST', headers: { ...H, Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(per) });
+              if (!pp.ok) fail('Simpan peserta CWL gagal (sudah menjalankan SQL tabel coc_peserta dan kolom jenis?):', pp.status + ' ' + await pp.text());
+            }
+            if (!atk.length) { console.log('Hasil ronde disimpan: ' + hasil.length + ', peserta: ' + per.length + '. Belum ada serangan CWL untuk dicatat.'); return; }
             const old = await getJson(REST + 'coc_attacks?select=id,member_id,war_date,durasi,target&jenis=eq.cwl&limit=1000');
             const oldBy = new Map(old.map(x => [x.member_id + '|' + x.war_date, x]));
             const all = atk.map(a => ({ war_date: a.date, opponent: a.opp, member_id: byTag[a.tag], attack_no: 1, stars: a.stars, percent: a.pct, jenis: 'cwl', durasi: a.dur, target: a.tgt }));
@@ -84,6 +90,6 @@ jobs:
               const p = await fetch(REST + 'coc_attacks', { method: 'POST', headers: { ...H, Prefer: 'return=minimal' }, body: JSON.stringify(rows) });
               if (!p.ok) fail('Simpan serangan CWL gagal (sudah menjalankan SQL kolom jenis, durasi, dan target?):', p.status + ' ' + await p.text());
             }
-            console.log('Selesai. CWL musim ' + (grp.season || '-') + ': ronde disimpan ' + hasil.length + ', serangan di API ' + atk.length + ', baru disimpan ' + rows.length + ', durasi dilengkapi ' + fixed + ', member baru ' + miss.length);
+            console.log('Selesai. CWL musim ' + (grp.season || '-') + ': ronde disimpan ' + hasil.length + ', serangan di API ' + atk.length + ', baru disimpan ' + rows.length + ', durasi dilengkapi ' + fixed + ', peserta ' + per.length + ', member baru ' + miss.length);
           })().catch(e => fail(e));
           EOF
