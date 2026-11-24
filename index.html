@@ -143,17 +143,25 @@ async function syncNow(btn){
  await load();fin({icon:'clock',title:'Masih berjalan di GitHub',sub:'Data sudah dimuat ulang. Coba buka lagi beberapa menit lagi.',steps});
 }
 function pesStat(){const g={};peserta.filter(p=>p.jenis!=='cwl'&&recent(p)).forEach(p=>{const d=p.war_date||adate(p);(g[d]=g[d]||[]).push(p)});
- const wars=Object.keys(g).sort().reverse().map(d=>{const L=g[d];return{d,L,n:L.length,fin:L.every(p=>p.selesai),bolos:L.reduce((t,p)=>t+Math.max(0,p.maks-p.dipakai),0)}});
- return{wars,fin:wars.filter(w=>w.fin),run:wars.filter(w=>!w.fin)}}
+ const now=Date.now(),TOL=30*60e3,mx=(L,k)=>Math.max(0,...L.map(p=>p[k]?Date.parse(p[k]):0))||null;
+ const wars=Object.keys(g).sort().reverse().map(d=>{const L=g[d],fin=L.every(p=>p.selesai),ak=mx(L,'akhir'),up=mx(L,'diperbarui');
+  let st='run';if(fin)st='fin';else if(ak&&now>ak)st=(up&&up>=ak-TOL)?'est':'inc';else if(!ak&&d<today())st='inc';
+  return{d,L,n:L.length,st,bolos:L.reduce((t,p)=>t+Math.max(0,p.maks-p.dipakai),0)}});
+ return{wars,ok:wars.filter(w=>w.st==='fin'||w.st==='est'),run:wars.filter(w=>w.st==='run'),inc:wars.filter(w=>w.st==='inc')}}
+const zl=p=>{const w=pesStat().wars.find(x=>x.d===(p.war_date||adate(p)));return w&&(w.st==='fin'||w.st==='est')?'tidak menyerang':w&&w.st==='inc'?'data tidak lengkap':'belum menyerang'};
+async function delPes(d){const ids=peserta.filter(p=>p.jenis!=='cwl'&&(p.war_date||adate(p))===d).map(p=>p.id);if(!ids.length||!confirm('Hapus catatan kehadiran war '+fmtD(d)+'?'))return;const{error}=await sb.from('coc_peserta').delete().in('id',ids);if(error)return alert(error.message);peserta=peserta.filter(p=>!ids.includes(p.id));render()}
+const PST={fin:['Final','b-green'],est:['Final (perkiraan)','b-cwl'],run:['Berjalan','b-yellow'],inc:['Tidak lengkap','b-red']};
 function kehadiranCard(){const ps=pesStat(),by=Object.fromEntries(members.map(m=>[m.id,m]));
  if(pesErr)return`<div class="c err"><small><i class="ic ic-warn"></i> Data kehadiran gagal dimuat (${esc(pesErr)}). Pastikan SQL tabel coc_peserta sudah dijalankan di proyek ini.</small></div>`;
  if(!ps.wars.length)return`<div class="c"><small><i class="ic ic-clipboard"></i> Belum ada data kehadiran. Data tercatat saat Sinkron War berjalan ketika war sedang berlangsung atau baru selesai. War yang sudah lewat tidak bisa diambil mundur.</small></div>`;
- const cards=ps.wars.map((w,i)=>{const miss=w.L.filter(p=>p.dipakai<p.maks&&by[p.member_id]).sort((x,y)=>(y.maks-y.dipakai)-(x.maks-x.dipakai)||String(by[x.member_id].name).localeCompare(by[y.member_id].name)),stuck=!w.fin&&w.d<today();
-  return`<details class="c" ${i<1?'open':''}><summary><b>${fmtD(w.d)}</b> <span class="badge ${w.fin?'b-green':'b-yellow'}">${w.fin?'Final':stuck?'Belum final':'Berjalan'}</span><br><small>${w.n} peserta · ${w.fin?w.bolos+' serangan tidak dipakai':stuck?'war sudah lewat tetapi belum tercatat selesai, jalankan Sinkron':'masih ada serangan yang bisa dipakai'}</small></summary>${miss.length?miss.map(p=>`<div class="al"><span>${esc(by[p.member_id].name)}</span><span class="${w.fin?'warn':''}">${p.dipakai}/${p.maks} serangan</span></div>`).join(''):'<small>Semua peserta memakai seluruh serangannya.</small>'}</details>`}).join('');
+ const cards=ps.wars.map((w,i)=>{const miss=w.L.filter(p=>p.dipakai<p.maks&&by[p.member_id]).sort((x,y)=>(y.maks-y.dipakai)-(x.maks-x.dipakai)||String(by[x.member_id].name).localeCompare(by[y.member_id].name));
+  const sub={fin:w.bolos+' serangan tidak dipakai',est:w.bolos+' serangan tidak dipakai · perkiraan, catatan terakhir diambil dekat akhir war',run:'masih ada serangan yang bisa dipakai',inc:'war sudah lewat dan datanya tidak lengkap, tidak dihitung ke Bolos'}[w.st];
+  const list=miss.length?miss.map(p=>`<div class="al ${w.st==='inc'?'dim':''}"><span>${esc(by[p.member_id].name)}</span><span class="${w.st==='fin'||w.st==='est'?'warn':''}">${p.dipakai}/${p.maks} serangan</span></div>`).join(''):'<small>Semua peserta memakai seluruh serangannya.</small>';
+  return`<details class="c" ${i<1?'open':''}><summary><b>${fmtD(w.d)}</b> <span class="badge ${PST[w.st][1]}">${PST[w.st][0]}</span><br><small>${w.n} peserta · ${sub}</small></summary>${list}${admin&&w.st!=='run'?`<div class="act"><button class="r" onclick="delPes('${w.d}')"><i class="ic ic-trash"></i> Hapus catatan war ini</button></div>`:''}</details>`}).join('');
  return`<details class="sec2" ${khOpen?'open':''} ontoggle="khOpen=this.open"><summary><i class="ic ic-clipboard"></i> Kehadiran war <small>· ${ps.wars.length} war tercatat</small></summary>${cards}</details>`}
 function kpiGrid(all){const N=all.reduce((t,x)=>t+x.n,0),S=all.reduce((t,x)=>t+x.avg*x.n,0),R=all.reduce((t,x)=>t+x.r,0),B=all.reduce((t,x)=>t+x.bolos,0),act=members.filter(m=>m.status!=='Keluar').length;
  const K=(cls,icon,col,label,val,sub,click)=>`<div class="kpi ${cls}" ${click?`onclick="${click}" style="cursor:pointer"`:''}><div class="kt"><span>${label}</span><i class="chipi ${col}"><i class="ic ic-${icon}"></i></i></div><b>${val}</b><small>${sub}</small></div>`;
- const ps=pesStat(),bs=pesErr?'Gagal memuat data kehadiran':!ps.wars.length?'Belum ada data kehadiran':(B?B+' serangan tidak dipakai · '+ps.fin.length+' war':ps.fin.length?'Tidak ada yang bolos · '+ps.fin.length+' war tercatat':'Menunggu war pertama selesai')+(ps.run.length?' · '+ps.run.length+' war belum final':'');
+ const ps=pesStat(),bs=pesErr?'Gagal memuat data kehadiran':!ps.wars.length?'Belum ada data kehadiran':(B?B+' serangan tidak dipakai · '+ps.ok.length+' war':ps.ok.length?'Tidak ada yang bolos · '+ps.ok.length+' war tercatat':'Menunggu war pertama selesai')+(ps.ok.some(w=>w.st==='est')?' · termasuk perkiraan':'')+(ps.run.length?' · '+ps.run.length+' war berjalan':'')+(ps.inc.length?' · '+ps.inc.length+' war tidak lengkap (tidak dihitung)':'');
  return`<div class="kpis">${K('','users','c-blue','Anggota aktif',act+'<em> / 50</em>',(members.length-act)+' sudah keluar',"tab='mem';render()")}${K('','star','c-amber','Rata-rata bintang',N?(S/N).toFixed(2):'-','dari '+N+' serangan war')}${K('','target','c-emerald','Serangan 3★',N?Math.round(R/N*100)+'%':'-',R+' dari '+N+' serangan')}${K(B?'danger':'','warn',B?'c-rose':'c-slate','Bolos (30 hari)',(pesErr||!ps.wars.length)?'–':B,bs)}</div>`}
 function periodeInfo(){const ra=attacks.filter(a=>recent(a)&&a.jenis!=='cwl'),nw=new Set(ra.map(adate)).size;return`<div class="c"><small><i class="ic ic-calendar"></i> Periode: ${fmtD(cutoff())} – ${fmtD(today())} (${RETENSI} hari terakhir) · ${nw} war · ${ra.length} serangan war biasa (CWL tidak dihitung). Data lebih lama dihapus otomatis.</small></div>`}
 
@@ -169,7 +177,7 @@ sb.auth.onAuthStateChange((ev,s)=>{const a=!!s;if(loaded&&a===admin)return;admin
 
 function calc(){
  const ra=attacks.filter(a=>recent(a)&&a.jenis!=='cwl');
- const rp=peserta.filter(p=>p.selesai&&p.jenis!=='cwl'&&recent(p));
+ const okW=new Set(pesStat().ok.map(w=>w.d)),rp=peserta.filter(p=>p.jenis!=='cwl'&&recent(p)&&okW.has(p.war_date||adate(p)));
  const s=members.map(m=>{const mp=rp.filter(p=>p.member_id===m.id),a=ra.filter(x=>x.member_id===m.id),n=a.length,c=k=>a.filter(x=>x.stars===k).length;
   return{m,n,r:c(3),c2:c(2),c1:c(1),c0:c(0),avg:n?a.reduce((t,x)=>t+x.stars,0)/n:0,avgp:n?a.reduce((t,x)=>t+(x.percent||0),0)/n:0,pr:n?c(3)/n:0,avgd:avgDur(a),ikut:mp.length,bolos:mp.reduce((t,p)=>t+Math.max(0,p.maks-p.dipakai),0)}});
  const el=s.filter(x=>x.m.status!=='Keluar'&&x.n>=cfg.min).sort((a,b)=>b.avg-a.avg||b.avgp-a.avgp);
@@ -206,7 +214,7 @@ function vAtk(){
   L.forEach(a=>{(g[a.member_id]=g[a.member_id]||[]).push(a)});
   const ids=Object.keys(g).sort((x,y)=>String(by[x].name).localeCompare(by[y].name));
   const zero=peserta.filter(p=>p.jenis!=='cwl'&&adate(p)===d&&!g[p.member_id]&&by[p.member_id]&&hit(by[p.member_id])&&p.dipakai===0).sort((x,y)=>String(by[x.member_id].name).localeCompare(by[y.member_id].name));
-  const zrows=zero.map(p=>`<div class="ar"><div class="an"><b>${esc(by[p.member_id].name)}</b><small><i class="ic ic-star"></i> 0 bintang</small></div><div class="ax"><div class="al dim"><span>① –</span></div><div class="al dim"><span>② –</span></div><div class="al"><span class="warn"><i class="ic ic-warn"></i> ${p.selesai?'tidak menyerang':'belum menyerang'}</span></div></div></div>`).join('');
+  const zrows=zero.map(p=>`<div class="ar"><div class="an"><b>${esc(by[p.member_id].name)}</b><small><i class="ic ic-star"></i> 0 bintang</small></div><div class="ax"><div class="al dim"><span>① –</span></div><div class="al dim"><span>② –</span></div><div class="al"><span class="warn"><i class="ic ic-warn"></i> ${zl(p)}</span></div></div></div>`).join('');
   const rows=ids.map(id=>{const A=g[id],tot=A.reduce((t,x)=>t+x.stars,0),NO=['①','②'];
    const line=a=>`<div class="al"><span>${NO[(a.attack_no||1)-1]||'•'} ${a.target?'#'+a.target:'-'} · ${a.stars}★ · ${a.percent??'-'}% · <i class="ic ic-timer"></i> ${fmtDur(a.durasi)}</span>${admin?`<button class="r s" onclick="delRow('coc_attacks','${a.id}')">✕</button>`:''}</div>`;
    const lines=[1,2].map(n=>{const a=A.find(x=>(x.attack_no||1)===n);return a?line(a):`<div class="al dim"><span>${NO[n-1]} –</span></div>`}).join('')+A.filter(x=>![1,2].includes(x.attack_no||1)).map(line).join('');
