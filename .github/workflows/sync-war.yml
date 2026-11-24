@@ -1,7 +1,7 @@
 name: Sinkron Serangan War Rudal Penceng
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 jobs:
   sync:
@@ -36,6 +36,7 @@ jobs:
             }
             const warDate = day(new Date(toDate(w.endTime).getTime() + 7 * 3600e3));
             const opp = (w.opponent && w.opponent.name) || null;
+            const akhirIso = toDate(w.endTime).toISOString(), nowIso = new Date().toISOString();
             let mem = await getJson(REST + 'coc_members?select=id,tag&limit=1000');
             let byTag = Object.fromEntries(mem.map(x => [x.tag, x.id]));
             const miss = [...new Map((w.clan.members || []).filter(m => !byTag[m.tag]).map(m => [m.tag, { name: m.name, tag: m.tag, th: m.townhallLevel || null, role: 'Member', status: 'Aktif' }])).values()];
@@ -45,10 +46,10 @@ jobs:
               mem = await getJson(REST + 'coc_members?select=id,tag&limit=1000');
               byTag = Object.fromEntries(mem.map(x => [x.tag, x.id]));
             }
-            const per = (w.clan.members || []).map(m => ({ war_date: warDate, member_id: byTag[m.tag], maks: w.attacksPerMember ?? 2, dipakai: (m.attacks || []).length, selesai: w.state === 'warEnded' })).filter(x => x.member_id);
+            const per = (w.clan.members || []).map(m => ({ war_date: warDate, member_id: byTag[m.tag], maks: w.attacksPerMember ?? 2, dipakai: (m.attacks || []).length, selesai: w.state === 'warEnded', akhir: akhirIso, diperbarui: nowIso })).filter(x => x.member_id);
             if (per.length) {
               const pp = await fetch(REST + 'coc_peserta?on_conflict=war_date,member_id', { method: 'POST', headers: { ...H, Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(per) });
-              if (!pp.ok) fail('Simpan peserta war gagal (sudah menjalankan SQL tabel coc_peserta?):', pp.status + ' ' + await pp.text());
+              if (!pp.ok) fail('Simpan peserta war gagal (sudah menjalankan SQL tabel coc_peserta dan kolom akhir, diperbarui?):', pp.status + ' ' + await pp.text());
             }
             if (!atk.length) { console.log('Peserta war disimpan: ' + per.length + '. Belum ada serangan.'); return; }
             const d0 = new Date(warDate + 'T00:00:00Z').getTime();
